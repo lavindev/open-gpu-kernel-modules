@@ -145,7 +145,18 @@ typedef   signed short     NvS16; /* -32768 to 32767                         */
 #endif
 
 // Macro to build an NvU32 from four bytes, listed from msb to lsb
-#define NvU32_BUILD(a, b, c, d) (((a) << 24) | ((b) << 16) | ((c) << 8) | (d))
+#define NvU32_BUILD(a, b, c, d) \
+    ((NvU32)( \
+     (((NvU32)(a) & 0xff) << 24) | \
+     (((NvU32)(b) & 0xff) << 16) | \
+     (((NvU32)(c) & 0xff) << 8)  | \
+     (((NvU32)(d) & 0xff))))
+
+// Macro to build an NvU64 from two DWORDS, listed from msb to lsb
+#define NvU64_BUILD(a, b) \
+    ((NvU64)( \
+     (((NvU64)(a) & ~0U) << 32) | \
+     (((NvU64)(b) & ~0U))))
 
 #if NVTYPES_USE_STDINT
 typedef uint32_t           NvV32; /* "void": enumerated or multiple fields   */
@@ -513,6 +524,12 @@ typedef struct
 // place to re-locate these from nvos.h which cannot be included by a number
 // of builds that need them
 
+#if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_COMPILER)
+    #define NV_ATTRIBUTE_UNUSED __attribute__((__unused__))
+#else
+    #define NV_ATTRIBUTE_UNUSED
+#endif
+
 #if defined(_MSC_VER)
 
     #if _MSC_VER >= 1310
@@ -535,8 +552,6 @@ typedef struct
     #define NV_STDCALL   __stdcall
 
     #define NV_FORCERESULTCHECK
-
-    #define NV_ATTRIBUTE_UNUSED
 
     #define NV_FORMAT_PRINTF(_f, _a)
 
@@ -633,12 +648,6 @@ typedef struct
         #endif
     #else /* defined(__GNUC__) */
         #define NV_FORCERESULTCHECK
-    #endif
-
-    #if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_COMPILER)
-        #define NV_ATTRIBUTE_UNUSED __attribute__((__unused__))
-    #else
-        #define NV_ATTRIBUTE_UNUSED
     #endif
 
     /*

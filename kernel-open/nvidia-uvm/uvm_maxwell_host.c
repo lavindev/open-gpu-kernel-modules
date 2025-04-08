@@ -1,5 +1,5 @@
 /*******************************************************************************
-    Copyright (c) 2021 NVIDIA Corporation
+    Copyright (c) 2021-2024 NVIDIA Corporation
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to
@@ -108,7 +108,7 @@ void uvm_hal_maxwell_host_tlb_invalidate_va(uvm_push_t *push,
                                             NvU32 depth,
                                             NvU64 base,
                                             NvU64 size,
-                                            NvU32 page_size,
+                                            NvU64 page_size,
                                             uvm_membar_t membar)
 {
     // No per VA invalidate on Maxwell, redirect to invalidate all.
@@ -175,6 +175,12 @@ void uvm_hal_maxwell_host_interrupt(uvm_push_t *push)
 void uvm_hal_maxwell_host_semaphore_release(uvm_push_t *push, NvU64 gpu_va, NvU32 payload)
 {
     NvU32 sem_lo;
+
+    UVM_ASSERT_MSG(uvm_push_get_gpu(push)->parent->host_hal->semaphore_target_is_valid(push, gpu_va),
+                   "Semaphore target validation failed in channel %s, GPU %s.\n",
+                   push->channel->name,
+                   uvm_gpu_name(uvm_push_get_gpu(push)));
+
     UVM_ASSERT(!(NvOffset_LO32(gpu_va) & ~HWSHIFTMASK(A16F, SEMAPHOREB, OFFSET_LOWER)));
     sem_lo = READ_HWVALUE(NvOffset_LO32(gpu_va), A16F, SEMAPHOREB, OFFSET_LOWER);
 
@@ -191,6 +197,12 @@ void uvm_hal_maxwell_host_semaphore_release(uvm_push_t *push, NvU64 gpu_va, NvU3
 void uvm_hal_maxwell_host_semaphore_acquire(uvm_push_t *push, NvU64 gpu_va, NvU32 payload)
 {
     NvU32 sem_lo;
+
+    UVM_ASSERT_MSG(uvm_push_get_gpu(push)->parent->host_hal->semaphore_target_is_valid(push, gpu_va),
+                   "Semaphore target validation failed in channel %s, GPU %s.\n",
+                   push->channel->name,
+                   uvm_gpu_name(uvm_push_get_gpu(push)));
+
     UVM_ASSERT(!(NvOffset_LO32(gpu_va) & ~HWSHIFTMASK(A16F, SEMAPHOREB, OFFSET_LOWER)));
     sem_lo = READ_HWVALUE(NvOffset_LO32(gpu_va), A16F, SEMAPHOREB, OFFSET_LOWER);
     NV_PUSH_4U(A16F, SEMAPHOREA, HWVALUE(A16F, SEMAPHOREA, OFFSET_UPPER, NvOffset_HI32(gpu_va)),
@@ -204,6 +216,12 @@ void uvm_hal_maxwell_host_semaphore_acquire(uvm_push_t *push, NvU64 gpu_va, NvU3
 void uvm_hal_maxwell_host_semaphore_timestamp(uvm_push_t *push, NvU64 gpu_va)
 {
     NvU32 sem_lo;
+
+    UVM_ASSERT_MSG(uvm_push_get_gpu(push)->parent->host_hal->semaphore_target_is_valid(push, gpu_va),
+                   "Semaphore target validation failed in channel %s, GPU %s.\n",
+                   push->channel->name,
+                   uvm_gpu_name(uvm_push_get_gpu(push)));
+
     UVM_ASSERT(!(NvOffset_LO32(gpu_va) & ~HWSHIFTMASK(A16F, SEMAPHOREB, OFFSET_LOWER)));
     sem_lo = READ_HWVALUE(NvOffset_LO32(gpu_va), A16F, SEMAPHOREB, OFFSET_LOWER);
 
@@ -217,9 +235,14 @@ void uvm_hal_maxwell_host_semaphore_timestamp(uvm_push_t *push, NvU64 gpu_va)
                                  HWCONST(A16F, SEMAPHORED, RELEASE_WFI, DIS));
 }
 
-void uvm_hal_maxwell_host_set_gpfifo_entry(NvU64 *fifo_entry, NvU64 pushbuffer_va, NvU32 pushbuffer_length)
+void uvm_hal_maxwell_host_set_gpfifo_entry(NvU64 *fifo_entry,
+                                           NvU64 pushbuffer_va,
+                                           NvU32 pushbuffer_length,
+                                           uvm_gpfifo_sync_t sync_flag)
 {
     NvU64 fifo_entry_value;
+    const NvU32 sync_value = (sync_flag == UVM_GPFIFO_SYNC_WAIT) ? HWCONST(A16F, GP_ENTRY1, SYNC, WAIT) :
+                                                                   HWCONST(A16F, GP_ENTRY1, SYNC, PROCEED);
 
     UVM_ASSERT(!uvm_global_is_suspended());
     UVM_ASSERT_MSG(pushbuffer_va % 4 == 0, "pushbuffer va unaligned: %llu\n", pushbuffer_va);
@@ -228,9 +251,23 @@ void uvm_hal_maxwell_host_set_gpfifo_entry(NvU64 *fifo_entry, NvU64 pushbuffer_v
     fifo_entry_value =          HWVALUE(A16F, GP_ENTRY0, GET, NvU64_LO32(pushbuffer_va) >> 2);
     fifo_entry_value |= (NvU64)(HWVALUE(A16F, GP_ENTRY1, GET_HI, NvU64_HI32(pushbuffer_va)) |
                                 HWVALUE(A16F, GP_ENTRY1, LENGTH, pushbuffer_length >> 2) |
-                                HWCONST(A16F, GP_ENTRY1, PRIV,   KERNEL)) << 32;
+                                HWCONST(A16F, GP_ENTRY1, PRIV,   KERNEL) |
+                                sync_value) << 32;
 
     *fifo_entry = fifo_entry_value;
+}
+
+void uvm_hal_maxwell_host_set_gpfifo_noop(NvU64 *fifo_entry)
+{
+    UVM_ASSERT(!uvm_global_is_suspended());
+
+    // A NOOP control GPFIFO does not require a GP_ENTRY0.
+    *fifo_entry = (NvU64)(HWVALUE(A16F, GP_ENTRY1, LENGTH, 0) | HWCONST(A16F, GP_ENTRY1, OPCODE, NOP)) << 32;
+}
+
+void uvm_hal_maxwell_host_set_gpfifo_pushbuffer_segment_base_unsupported(NvU64 *fifo_entry, NvU64 pushbuffer_va)
+{
+    UVM_ASSERT_MSG(false, "host set_gpfifo_pushbuffer_segment_base called on Maxwell GPU\n");
 }
 
 void uvm_hal_maxwell_host_write_gpu_put(uvm_channel_t *channel, NvU32 gpu_put)
@@ -291,11 +328,6 @@ void uvm_hal_maxwell_host_clear_faulted_channel_register_unsupported(uvm_user_ch
 void uvm_hal_maxwell_access_counter_clear_all_unsupported(uvm_push_t *push)
 {
     UVM_ASSERT_MSG(false, "host access_counter_clear_all called on Maxwell GPU\n");
-}
-
-void uvm_hal_maxwell_access_counter_clear_type_unsupported(uvm_push_t *push, uvm_access_counter_type_t type)
-{
-    UVM_ASSERT_MSG(false, "host access_counter_clear_type called on Maxwell GPU\n");
 }
 
 void uvm_hal_maxwell_access_counter_clear_targeted_unsupported(uvm_push_t *push,

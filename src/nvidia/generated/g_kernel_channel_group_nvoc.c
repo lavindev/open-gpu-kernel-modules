@@ -66,6 +66,10 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_KernelChannelGroup =
     /*pExportInfo=*/        &__nvoc_export_info_KernelChannelGroup
 };
 
+// Down-thunk(s) to bridge KernelChannelGroup methods from ancestors (if any)
+
+// Up-thunk(s) to bridge KernelChannelGroup methods to ancestors (if any)
+
 const struct NVOC_EXPORT_INFO __nvoc_export_info_KernelChannelGroup = 
 {
     /*numEntries=*/     0,
@@ -111,6 +115,7 @@ __nvoc_ctor_KernelChannelGroup_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_KernelChannelGroup_1(KernelChannelGroup *pThis, RmHalspecOwner *pRmhalspecowner) {
     RmVariantHal *rmVariantHal = &pRmhalspecowner->rmVariantHal;
     const unsigned long rmVariantHal_HalVarIdx = (unsigned long)rmVariantHal->__nvoc_HalVarIdx;
@@ -122,8 +127,10 @@ static void __nvoc_init_funcTable_KernelChannelGroup_1(KernelChannelGroup *pThis
     PORT_UNREFERENCED_VARIABLE(rmVariantHal_HalVarIdx);
     PORT_UNREFERENCED_VARIABLE(chipHal);
     PORT_UNREFERENCED_VARIABLE(chipHal_HalVarIdx);
-}
+} // End __nvoc_init_funcTable_KernelChannelGroup_1
 
+
+// Initialize vtable(s): Nothing to do for empty vtables
 void __nvoc_init_funcTable_KernelChannelGroup(KernelChannelGroup *pThis, RmHalspecOwner *pRmhalspecowner) {
     __nvoc_init_funcTable_KernelChannelGroup_1(pThis, pRmhalspecowner);
 }
@@ -137,20 +144,31 @@ void __nvoc_init_KernelChannelGroup(KernelChannelGroup *pThis, RmHalspecOwner *p
     __nvoc_init_funcTable_KernelChannelGroup(pThis, pRmhalspecowner);
 }
 
-NV_STATUS __nvoc_objCreate_KernelChannelGroup(KernelChannelGroup **ppThis, Dynamic *pParent, NvU32 createFlags) {
+NV_STATUS __nvoc_objCreate_KernelChannelGroup(KernelChannelGroup **ppThis, Dynamic *pParent, NvU32 createFlags)
+{
     NV_STATUS status;
-    Object *pParentObj;
+    Object *pParentObj = NULL;
     KernelChannelGroup *pThis;
     RmHalspecOwner *pRmhalspecowner;
 
-    pThis = portMemAllocNonPaged(sizeof(KernelChannelGroup));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    // Assign `pThis`, allocating memory unless suppressed by flag.
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(KernelChannelGroup), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
+    // Zero is the initial value for everything.
     portMemSet(pThis, 0, sizeof(KernelChannelGroup));
 
+    // Initialize runtime type information.
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_KernelChannelGroup);
 
-    if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
+    pThis->__nvoc_base_RsShared.__nvoc_base_Object.createFlags = createFlags;
+
+    // pParent must be a valid object that derives from a halspec owner class.
+    NV_ASSERT_OR_RETURN(pParent != NULL, NV_ERR_INVALID_ARGUMENT);
+
+    // Link the child into the parent unless flagged not to do so.
+    if (!(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
         pParentObj = dynamicCast(pParent, Object);
         objAddChild(pParentObj, &pThis->__nvoc_base_RsShared.__nvoc_base_Object);
@@ -168,12 +186,27 @@ NV_STATUS __nvoc_objCreate_KernelChannelGroup(KernelChannelGroup **ppThis, Dynam
     status = __nvoc_ctor_KernelChannelGroup(pThis, pRmhalspecowner);
     if (status != NV_OK) goto __nvoc_objCreate_KernelChannelGroup_cleanup;
 
+    // Assignment has no effect if NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT is set.
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_KernelChannelGroup_cleanup:
-    // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+
+    // Unlink the child from the parent if it was linked above.
+    if (pParentObj != NULL)
+        objRemoveChild(pParentObj, &pThis->__nvoc_base_RsShared.__nvoc_base_Object);
+
+    // Do not call destructors here since the constructor already called them.
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(KernelChannelGroup));
+    else
+    {
+        portMemFree(pThis);
+        *ppThis = NULL;
+    }
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 

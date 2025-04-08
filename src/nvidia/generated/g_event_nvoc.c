@@ -66,6 +66,10 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_NotifShare =
     /*pExportInfo=*/        &__nvoc_export_info_NotifShare
 };
 
+// Down-thunk(s) to bridge NotifShare methods from ancestors (if any)
+
+// Up-thunk(s) to bridge NotifShare methods to ancestors (if any)
+
 const struct NVOC_EXPORT_INFO __nvoc_export_info_NotifShare = 
 {
     /*numEntries=*/     0,
@@ -102,10 +106,13 @@ __nvoc_ctor_NotifShare_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_NotifShare_1(NotifShare *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
-}
+} // End __nvoc_init_funcTable_NotifShare_1
 
+
+// Initialize vtable(s): Nothing to do for empty vtables
 void __nvoc_init_funcTable_NotifShare(NotifShare *pThis) {
     __nvoc_init_funcTable_NotifShare_1(pThis);
 }
@@ -119,18 +126,26 @@ void __nvoc_init_NotifShare(NotifShare *pThis) {
     __nvoc_init_funcTable_NotifShare(pThis);
 }
 
-NV_STATUS __nvoc_objCreate_NotifShare(NotifShare **ppThis, Dynamic *pParent, NvU32 createFlags) {
+NV_STATUS __nvoc_objCreate_NotifShare(NotifShare **ppThis, Dynamic *pParent, NvU32 createFlags)
+{
     NV_STATUS status;
-    Object *pParentObj;
+    Object *pParentObj = NULL;
     NotifShare *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(NotifShare));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    // Assign `pThis`, allocating memory unless suppressed by flag.
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(NotifShare), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
+    // Zero is the initial value for everything.
     portMemSet(pThis, 0, sizeof(NotifShare));
 
+    // Initialize runtime type information.
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_NotifShare);
 
+    pThis->__nvoc_base_RsShared.__nvoc_base_Object.createFlags = createFlags;
+
+    // Link the child into the parent if there is one unless flagged not to do so.
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
         pParentObj = dynamicCast(pParent, Object);
@@ -145,12 +160,27 @@ NV_STATUS __nvoc_objCreate_NotifShare(NotifShare **ppThis, Dynamic *pParent, NvU
     status = __nvoc_ctor_NotifShare(pThis);
     if (status != NV_OK) goto __nvoc_objCreate_NotifShare_cleanup;
 
+    // Assignment has no effect if NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT is set.
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_NotifShare_cleanup:
-    // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+
+    // Unlink the child from the parent if it was linked above.
+    if (pParentObj != NULL)
+        objRemoveChild(pParentObj, &pThis->__nvoc_base_RsShared.__nvoc_base_Object);
+
+    // Do not call destructors here since the constructor already called them.
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(NotifShare));
+    else
+    {
+        portMemFree(pThis);
+        *ppThis = NULL;
+    }
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 
@@ -239,77 +269,156 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_Event =
     /*pExportInfo=*/        &__nvoc_export_info_Event
 };
 
-static NvBool __nvoc_thunk_RmResource_eventShareCallback(struct Event *pResource, struct RsClient *pInvokingClient, struct RsResourceRef *pParentRef, RS_SHARE_POLICY *pSharePolicy) {
-    return rmresShareCallback((struct RmResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RmResource.offset), pInvokingClient, pParentRef, pSharePolicy);
+// Down-thunk(s) to bridge Event methods from ancestors (if any)
+NvBool __nvoc_down_thunk_RmResource_resAccessCallback(struct RsResource *pResource, struct RsClient *pInvokingClient, void *pAllocParams, RsAccessRight accessRight);    // super
+NvBool __nvoc_down_thunk_RmResource_resShareCallback(struct RsResource *pResource, struct RsClient *pInvokingClient, struct RsResourceRef *pParentRef, RS_SHARE_POLICY *pSharePolicy);    // super
+NV_STATUS __nvoc_down_thunk_RmResource_resControlSerialization_Prologue(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // super
+void __nvoc_down_thunk_RmResource_resControlSerialization_Epilogue(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // super
+NV_STATUS __nvoc_down_thunk_RmResource_resControl_Prologue(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // super
+void __nvoc_down_thunk_RmResource_resControl_Epilogue(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // super
+
+// Up-thunk(s) to bridge Event methods to ancestors (if any)
+NvBool __nvoc_up_thunk_RsResource_rmresCanCopy(struct RmResource *pResource);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresIsDuplicate(struct RmResource *pResource, NvHandle hMemory, NvBool *pDuplicate);    // super
+void __nvoc_up_thunk_RsResource_rmresPreDestruct(struct RmResource *pResource);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresControl(struct RmResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresControlFilter(struct RmResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresMap(struct RmResource *pResource, struct CALL_CONTEXT *pCallContext, RS_CPU_MAP_PARAMS *pParams, RsCpuMapping *pCpuMapping);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresUnmap(struct RmResource *pResource, struct CALL_CONTEXT *pCallContext, RsCpuMapping *pCpuMapping);    // super
+NvBool __nvoc_up_thunk_RsResource_rmresIsPartialUnmapSupported(struct RmResource *pResource);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresMapTo(struct RmResource *pResource, RS_RES_MAP_TO_PARAMS *pParams);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresUnmapFrom(struct RmResource *pResource, RS_RES_UNMAP_FROM_PARAMS *pParams);    // super
+NvU32 __nvoc_up_thunk_RsResource_rmresGetRefCount(struct RmResource *pResource);    // super
+void __nvoc_up_thunk_RsResource_rmresAddAdditionalDependants(struct RsClient *pClient, struct RmResource *pResource, RsResourceRef *pReference);    // super
+NvBool __nvoc_up_thunk_RmResource_eventAccessCallback(struct Event *pResource, struct RsClient *pInvokingClient, void *pAllocParams, RsAccessRight accessRight);    // this
+NvBool __nvoc_up_thunk_RmResource_eventShareCallback(struct Event *pResource, struct RsClient *pInvokingClient, struct RsResourceRef *pParentRef, RS_SHARE_POLICY *pSharePolicy);    // this
+NV_STATUS __nvoc_up_thunk_RmResource_eventGetMemInterMapParams(struct Event *pRmResource, RMRES_MEM_INTER_MAP_PARAMS *pParams);    // this
+NV_STATUS __nvoc_up_thunk_RmResource_eventCheckMemInterUnmap(struct Event *pRmResource, NvBool bSubdeviceHandleProvided);    // this
+NV_STATUS __nvoc_up_thunk_RmResource_eventGetMemoryMappingDescriptor(struct Event *pRmResource, struct MEMORY_DESCRIPTOR **ppMemDesc);    // this
+NV_STATUS __nvoc_up_thunk_RmResource_eventControlSerialization_Prologue(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // this
+void __nvoc_up_thunk_RmResource_eventControlSerialization_Epilogue(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // this
+NV_STATUS __nvoc_up_thunk_RmResource_eventControl_Prologue(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // this
+void __nvoc_up_thunk_RmResource_eventControl_Epilogue(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // this
+NvBool __nvoc_up_thunk_RsResource_eventCanCopy(struct Event *pResource);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_eventIsDuplicate(struct Event *pResource, NvHandle hMemory, NvBool *pDuplicate);    // this
+void __nvoc_up_thunk_RsResource_eventPreDestruct(struct Event *pResource);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_eventControl(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_eventControlFilter(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_eventMap(struct Event *pResource, struct CALL_CONTEXT *pCallContext, RS_CPU_MAP_PARAMS *pParams, RsCpuMapping *pCpuMapping);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_eventUnmap(struct Event *pResource, struct CALL_CONTEXT *pCallContext, RsCpuMapping *pCpuMapping);    // this
+NvBool __nvoc_up_thunk_RsResource_eventIsPartialUnmapSupported(struct Event *pResource);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_eventMapTo(struct Event *pResource, RS_RES_MAP_TO_PARAMS *pParams);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_eventUnmapFrom(struct Event *pResource, RS_RES_UNMAP_FROM_PARAMS *pParams);    // this
+NvU32 __nvoc_up_thunk_RsResource_eventGetRefCount(struct Event *pResource);    // this
+void __nvoc_up_thunk_RsResource_eventAddAdditionalDependants(struct RsClient *pClient, struct Event *pResource, RsResourceRef *pReference);    // this
+
+// 21 up-thunk(s) defined to bridge methods in Event to superclasses
+
+// eventAccessCallback: virtual inherited (rmres) base (rmres)
+NvBool __nvoc_up_thunk_RmResource_eventAccessCallback(struct Event *pResource, struct RsClient *pInvokingClient, void *pAllocParams, RsAccessRight accessRight) {
+    return rmresAccessCallback((struct RmResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource)), pInvokingClient, pAllocParams, accessRight);
 }
 
-static NV_STATUS __nvoc_thunk_RmResource_eventCheckMemInterUnmap(struct Event *pRmResource, NvBool bSubdeviceHandleProvided) {
-    return rmresCheckMemInterUnmap((struct RmResource *)(((unsigned char *)pRmResource) + __nvoc_rtti_Event_RmResource.offset), bSubdeviceHandleProvided);
+// eventShareCallback: virtual inherited (rmres) base (rmres)
+NvBool __nvoc_up_thunk_RmResource_eventShareCallback(struct Event *pResource, struct RsClient *pInvokingClient, struct RsResourceRef *pParentRef, RS_SHARE_POLICY *pSharePolicy) {
+    return rmresShareCallback((struct RmResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource)), pInvokingClient, pParentRef, pSharePolicy);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_eventControl(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
-    return resControl((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RsResource.offset), pCallContext, pParams);
+// eventGetMemInterMapParams: virtual inherited (rmres) base (rmres)
+NV_STATUS __nvoc_up_thunk_RmResource_eventGetMemInterMapParams(struct Event *pRmResource, RMRES_MEM_INTER_MAP_PARAMS *pParams) {
+    return rmresGetMemInterMapParams((struct RmResource *)(((unsigned char *) pRmResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource)), pParams);
 }
 
-static NV_STATUS __nvoc_thunk_RmResource_eventGetMemInterMapParams(struct Event *pRmResource, RMRES_MEM_INTER_MAP_PARAMS *pParams) {
-    return rmresGetMemInterMapParams((struct RmResource *)(((unsigned char *)pRmResource) + __nvoc_rtti_Event_RmResource.offset), pParams);
+// eventCheckMemInterUnmap: virtual inherited (rmres) base (rmres)
+NV_STATUS __nvoc_up_thunk_RmResource_eventCheckMemInterUnmap(struct Event *pRmResource, NvBool bSubdeviceHandleProvided) {
+    return rmresCheckMemInterUnmap((struct RmResource *)(((unsigned char *) pRmResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource)), bSubdeviceHandleProvided);
 }
 
-static NV_STATUS __nvoc_thunk_RmResource_eventGetMemoryMappingDescriptor(struct Event *pRmResource, struct MEMORY_DESCRIPTOR **ppMemDesc) {
-    return rmresGetMemoryMappingDescriptor((struct RmResource *)(((unsigned char *)pRmResource) + __nvoc_rtti_Event_RmResource.offset), ppMemDesc);
+// eventGetMemoryMappingDescriptor: virtual inherited (rmres) base (rmres)
+NV_STATUS __nvoc_up_thunk_RmResource_eventGetMemoryMappingDescriptor(struct Event *pRmResource, struct MEMORY_DESCRIPTOR **ppMemDesc) {
+    return rmresGetMemoryMappingDescriptor((struct RmResource *)(((unsigned char *) pRmResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource)), ppMemDesc);
 }
 
-static NvU32 __nvoc_thunk_RsResource_eventGetRefCount(struct Event *pResource) {
-    return resGetRefCount((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RsResource.offset));
+// eventControlSerialization_Prologue: virtual inherited (rmres) base (rmres)
+NV_STATUS __nvoc_up_thunk_RmResource_eventControlSerialization_Prologue(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return rmresControlSerialization_Prologue((struct RmResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource)), pCallContext, pParams);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_eventControlFilter(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
-    return resControlFilter((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RsResource.offset), pCallContext, pParams);
+// eventControlSerialization_Epilogue: virtual inherited (rmres) base (rmres)
+void __nvoc_up_thunk_RmResource_eventControlSerialization_Epilogue(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    rmresControlSerialization_Epilogue((struct RmResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource)), pCallContext, pParams);
 }
 
-static void __nvoc_thunk_RsResource_eventAddAdditionalDependants(struct RsClient *pClient, struct Event *pResource, RsResourceRef *pReference) {
-    resAddAdditionalDependants(pClient, (struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RsResource.offset), pReference);
+// eventControl_Prologue: virtual inherited (rmres) base (rmres)
+NV_STATUS __nvoc_up_thunk_RmResource_eventControl_Prologue(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return rmresControl_Prologue((struct RmResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource)), pCallContext, pParams);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_eventUnmap(struct Event *pResource, struct CALL_CONTEXT *pCallContext, RsCpuMapping *pCpuMapping) {
-    return resUnmap((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RsResource.offset), pCallContext, pCpuMapping);
+// eventControl_Epilogue: virtual inherited (rmres) base (rmres)
+void __nvoc_up_thunk_RmResource_eventControl_Epilogue(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    rmresControl_Epilogue((struct RmResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource)), pCallContext, pParams);
 }
 
-static NV_STATUS __nvoc_thunk_RmResource_eventControl_Prologue(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
-    return rmresControl_Prologue((struct RmResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RmResource.offset), pCallContext, pParams);
+// eventCanCopy: virtual inherited (res) base (rmres)
+NvBool __nvoc_up_thunk_RsResource_eventCanCopy(struct Event *pResource) {
+    return resCanCopy((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource.__nvoc_base_RsResource)));
 }
 
-static NvBool __nvoc_thunk_RsResource_eventCanCopy(struct Event *pResource) {
-    return resCanCopy((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RsResource.offset));
+// eventIsDuplicate: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_eventIsDuplicate(struct Event *pResource, NvHandle hMemory, NvBool *pDuplicate) {
+    return resIsDuplicate((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource.__nvoc_base_RsResource)), hMemory, pDuplicate);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_eventMapTo(struct Event *pResource, RS_RES_MAP_TO_PARAMS *pParams) {
-    return resMapTo((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RsResource.offset), pParams);
+// eventPreDestruct: virtual inherited (res) base (rmres)
+void __nvoc_up_thunk_RsResource_eventPreDestruct(struct Event *pResource) {
+    resPreDestruct((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource.__nvoc_base_RsResource)));
 }
 
-static void __nvoc_thunk_RsResource_eventPreDestruct(struct Event *pResource) {
-    resPreDestruct((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RsResource.offset));
+// eventControl: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_eventControl(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return resControl((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource.__nvoc_base_RsResource)), pCallContext, pParams);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_eventUnmapFrom(struct Event *pResource, RS_RES_UNMAP_FROM_PARAMS *pParams) {
-    return resUnmapFrom((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RsResource.offset), pParams);
+// eventControlFilter: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_eventControlFilter(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return resControlFilter((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource.__nvoc_base_RsResource)), pCallContext, pParams);
 }
 
-static void __nvoc_thunk_RmResource_eventControl_Epilogue(struct Event *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
-    rmresControl_Epilogue((struct RmResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RmResource.offset), pCallContext, pParams);
+// eventMap: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_eventMap(struct Event *pResource, struct CALL_CONTEXT *pCallContext, RS_CPU_MAP_PARAMS *pParams, RsCpuMapping *pCpuMapping) {
+    return resMap((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource.__nvoc_base_RsResource)), pCallContext, pParams, pCpuMapping);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_eventControlLookup(struct Event *pResource, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams, const struct NVOC_EXPORTED_METHOD_DEF **ppEntry) {
-    return resControlLookup((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RsResource.offset), pParams, ppEntry);
+// eventUnmap: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_eventUnmap(struct Event *pResource, struct CALL_CONTEXT *pCallContext, RsCpuMapping *pCpuMapping) {
+    return resUnmap((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource.__nvoc_base_RsResource)), pCallContext, pCpuMapping);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_eventMap(struct Event *pResource, struct CALL_CONTEXT *pCallContext, RS_CPU_MAP_PARAMS *pParams, RsCpuMapping *pCpuMapping) {
-    return resMap((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RsResource.offset), pCallContext, pParams, pCpuMapping);
+// eventIsPartialUnmapSupported: inline virtual inherited (res) base (rmres) body
+NvBool __nvoc_up_thunk_RsResource_eventIsPartialUnmapSupported(struct Event *pResource) {
+    return resIsPartialUnmapSupported((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource.__nvoc_base_RsResource)));
 }
 
-static NvBool __nvoc_thunk_RmResource_eventAccessCallback(struct Event *pResource, struct RsClient *pInvokingClient, void *pAllocParams, RsAccessRight accessRight) {
-    return rmresAccessCallback((struct RmResource *)(((unsigned char *)pResource) + __nvoc_rtti_Event_RmResource.offset), pInvokingClient, pAllocParams, accessRight);
+// eventMapTo: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_eventMapTo(struct Event *pResource, RS_RES_MAP_TO_PARAMS *pParams) {
+    return resMapTo((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource.__nvoc_base_RsResource)), pParams);
 }
+
+// eventUnmapFrom: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_eventUnmapFrom(struct Event *pResource, RS_RES_UNMAP_FROM_PARAMS *pParams) {
+    return resUnmapFrom((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource.__nvoc_base_RsResource)), pParams);
+}
+
+// eventGetRefCount: virtual inherited (res) base (rmres)
+NvU32 __nvoc_up_thunk_RsResource_eventGetRefCount(struct Event *pResource) {
+    return resGetRefCount((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource.__nvoc_base_RsResource)));
+}
+
+// eventAddAdditionalDependants: virtual inherited (res) base (rmres)
+void __nvoc_up_thunk_RsResource_eventAddAdditionalDependants(struct RsClient *pClient, struct Event *pResource, RsResourceRef *pReference) {
+    resAddAdditionalDependants(pClient, (struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(Event, __nvoc_base_RmResource.__nvoc_base_RsResource)), pReference);
+}
+
 
 const struct NVOC_EXPORT_INFO __nvoc_export_info_Event = 
 {
@@ -347,47 +456,83 @@ __nvoc_ctor_Event_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_Event_1(Event *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
+} // End __nvoc_init_funcTable_Event_1
 
-    pThis->__eventShareCallback__ = &__nvoc_thunk_RmResource_eventShareCallback;
 
-    pThis->__eventCheckMemInterUnmap__ = &__nvoc_thunk_RmResource_eventCheckMemInterUnmap;
-
-    pThis->__eventControl__ = &__nvoc_thunk_RsResource_eventControl;
-
-    pThis->__eventGetMemInterMapParams__ = &__nvoc_thunk_RmResource_eventGetMemInterMapParams;
-
-    pThis->__eventGetMemoryMappingDescriptor__ = &__nvoc_thunk_RmResource_eventGetMemoryMappingDescriptor;
-
-    pThis->__eventGetRefCount__ = &__nvoc_thunk_RsResource_eventGetRefCount;
-
-    pThis->__eventControlFilter__ = &__nvoc_thunk_RsResource_eventControlFilter;
-
-    pThis->__eventAddAdditionalDependants__ = &__nvoc_thunk_RsResource_eventAddAdditionalDependants;
-
-    pThis->__eventUnmap__ = &__nvoc_thunk_RsResource_eventUnmap;
-
-    pThis->__eventControl_Prologue__ = &__nvoc_thunk_RmResource_eventControl_Prologue;
-
-    pThis->__eventCanCopy__ = &__nvoc_thunk_RsResource_eventCanCopy;
-
-    pThis->__eventMapTo__ = &__nvoc_thunk_RsResource_eventMapTo;
-
-    pThis->__eventPreDestruct__ = &__nvoc_thunk_RsResource_eventPreDestruct;
-
-    pThis->__eventUnmapFrom__ = &__nvoc_thunk_RsResource_eventUnmapFrom;
-
-    pThis->__eventControl_Epilogue__ = &__nvoc_thunk_RmResource_eventControl_Epilogue;
-
-    pThis->__eventControlLookup__ = &__nvoc_thunk_RsResource_eventControlLookup;
-
-    pThis->__eventMap__ = &__nvoc_thunk_RsResource_eventMap;
-
-    pThis->__eventAccessCallback__ = &__nvoc_thunk_RmResource_eventAccessCallback;
-}
-
+// Initialize vtable(s) for 21 virtual method(s).
 void __nvoc_init_funcTable_Event(Event *pThis) {
+
+    // Per-class vtable definition
+    static const struct NVOC_VTABLE__Event vtable = {
+        .__eventAccessCallback__ = &__nvoc_up_thunk_RmResource_eventAccessCallback,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresAccessCallback__ = &rmresAccessCallback_IMPL,    // virtual override (res) base (res)
+        .RmResource.RsResource.__resAccessCallback__ = &__nvoc_down_thunk_RmResource_resAccessCallback,    // virtual
+        .__eventShareCallback__ = &__nvoc_up_thunk_RmResource_eventShareCallback,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresShareCallback__ = &rmresShareCallback_IMPL,    // virtual override (res) base (res)
+        .RmResource.RsResource.__resShareCallback__ = &__nvoc_down_thunk_RmResource_resShareCallback,    // virtual
+        .__eventGetMemInterMapParams__ = &__nvoc_up_thunk_RmResource_eventGetMemInterMapParams,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresGetMemInterMapParams__ = &rmresGetMemInterMapParams_IMPL,    // virtual
+        .__eventCheckMemInterUnmap__ = &__nvoc_up_thunk_RmResource_eventCheckMemInterUnmap,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresCheckMemInterUnmap__ = &rmresCheckMemInterUnmap_IMPL,    // virtual
+        .__eventGetMemoryMappingDescriptor__ = &__nvoc_up_thunk_RmResource_eventGetMemoryMappingDescriptor,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresGetMemoryMappingDescriptor__ = &rmresGetMemoryMappingDescriptor_IMPL,    // virtual
+        .__eventControlSerialization_Prologue__ = &__nvoc_up_thunk_RmResource_eventControlSerialization_Prologue,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresControlSerialization_Prologue__ = &rmresControlSerialization_Prologue_IMPL,    // virtual override (res) base (res)
+        .RmResource.RsResource.__resControlSerialization_Prologue__ = &__nvoc_down_thunk_RmResource_resControlSerialization_Prologue,    // virtual
+        .__eventControlSerialization_Epilogue__ = &__nvoc_up_thunk_RmResource_eventControlSerialization_Epilogue,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresControlSerialization_Epilogue__ = &rmresControlSerialization_Epilogue_IMPL,    // virtual override (res) base (res)
+        .RmResource.RsResource.__resControlSerialization_Epilogue__ = &__nvoc_down_thunk_RmResource_resControlSerialization_Epilogue,    // virtual
+        .__eventControl_Prologue__ = &__nvoc_up_thunk_RmResource_eventControl_Prologue,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresControl_Prologue__ = &rmresControl_Prologue_IMPL,    // virtual override (res) base (res)
+        .RmResource.RsResource.__resControl_Prologue__ = &__nvoc_down_thunk_RmResource_resControl_Prologue,    // virtual
+        .__eventControl_Epilogue__ = &__nvoc_up_thunk_RmResource_eventControl_Epilogue,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresControl_Epilogue__ = &rmresControl_Epilogue_IMPL,    // virtual override (res) base (res)
+        .RmResource.RsResource.__resControl_Epilogue__ = &__nvoc_down_thunk_RmResource_resControl_Epilogue,    // virtual
+        .__eventCanCopy__ = &__nvoc_up_thunk_RsResource_eventCanCopy,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresCanCopy__ = &__nvoc_up_thunk_RsResource_rmresCanCopy,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resCanCopy__ = &resCanCopy_IMPL,    // virtual
+        .__eventIsDuplicate__ = &__nvoc_up_thunk_RsResource_eventIsDuplicate,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresIsDuplicate__ = &__nvoc_up_thunk_RsResource_rmresIsDuplicate,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resIsDuplicate__ = &resIsDuplicate_IMPL,    // virtual
+        .__eventPreDestruct__ = &__nvoc_up_thunk_RsResource_eventPreDestruct,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresPreDestruct__ = &__nvoc_up_thunk_RsResource_rmresPreDestruct,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resPreDestruct__ = &resPreDestruct_IMPL,    // virtual
+        .__eventControl__ = &__nvoc_up_thunk_RsResource_eventControl,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresControl__ = &__nvoc_up_thunk_RsResource_rmresControl,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resControl__ = &resControl_IMPL,    // virtual
+        .__eventControlFilter__ = &__nvoc_up_thunk_RsResource_eventControlFilter,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresControlFilter__ = &__nvoc_up_thunk_RsResource_rmresControlFilter,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resControlFilter__ = &resControlFilter_IMPL,    // virtual
+        .__eventMap__ = &__nvoc_up_thunk_RsResource_eventMap,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresMap__ = &__nvoc_up_thunk_RsResource_rmresMap,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resMap__ = &resMap_IMPL,    // virtual
+        .__eventUnmap__ = &__nvoc_up_thunk_RsResource_eventUnmap,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresUnmap__ = &__nvoc_up_thunk_RsResource_rmresUnmap,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resUnmap__ = &resUnmap_IMPL,    // virtual
+        .__eventIsPartialUnmapSupported__ = &__nvoc_up_thunk_RsResource_eventIsPartialUnmapSupported,    // inline virtual inherited (res) base (rmres) body
+        .RmResource.__rmresIsPartialUnmapSupported__ = &__nvoc_up_thunk_RsResource_rmresIsPartialUnmapSupported,    // inline virtual inherited (res) base (res) body
+        .RmResource.RsResource.__resIsPartialUnmapSupported__ = &resIsPartialUnmapSupported_d69453,    // inline virtual body
+        .__eventMapTo__ = &__nvoc_up_thunk_RsResource_eventMapTo,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresMapTo__ = &__nvoc_up_thunk_RsResource_rmresMapTo,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resMapTo__ = &resMapTo_IMPL,    // virtual
+        .__eventUnmapFrom__ = &__nvoc_up_thunk_RsResource_eventUnmapFrom,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresUnmapFrom__ = &__nvoc_up_thunk_RsResource_rmresUnmapFrom,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resUnmapFrom__ = &resUnmapFrom_IMPL,    // virtual
+        .__eventGetRefCount__ = &__nvoc_up_thunk_RsResource_eventGetRefCount,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresGetRefCount__ = &__nvoc_up_thunk_RsResource_rmresGetRefCount,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resGetRefCount__ = &resGetRefCount_IMPL,    // virtual
+        .__eventAddAdditionalDependants__ = &__nvoc_up_thunk_RsResource_eventAddAdditionalDependants,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresAddAdditionalDependants__ = &__nvoc_up_thunk_RsResource_rmresAddAdditionalDependants,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resAddAdditionalDependants__ = &resAddAdditionalDependants_IMPL,    // virtual
+    };
+
+    // Pointer(s) to per-class vtable(s)
+    pThis->__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_vtable = &vtable.RmResource.RsResource;    // (res) super^2
+    pThis->__nvoc_base_RmResource.__nvoc_vtable = &vtable.RmResource;    // (rmres) super
+    pThis->__nvoc_vtable = &vtable;    // (event) this
     __nvoc_init_funcTable_Event_1(pThis);
 }
 
@@ -402,18 +547,26 @@ void __nvoc_init_Event(Event *pThis) {
     __nvoc_init_funcTable_Event(pThis);
 }
 
-NV_STATUS __nvoc_objCreate_Event(Event **ppThis, Dynamic *pParent, NvU32 createFlags, struct CALL_CONTEXT * arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL * arg_pParams) {
+NV_STATUS __nvoc_objCreate_Event(Event **ppThis, Dynamic *pParent, NvU32 createFlags, struct CALL_CONTEXT * arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL * arg_pParams)
+{
     NV_STATUS status;
-    Object *pParentObj;
+    Object *pParentObj = NULL;
     Event *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(Event));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    // Assign `pThis`, allocating memory unless suppressed by flag.
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(Event), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
+    // Zero is the initial value for everything.
     portMemSet(pThis, 0, sizeof(Event));
 
+    // Initialize runtime type information.
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_Event);
 
+    pThis->__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_base_Object.createFlags = createFlags;
+
+    // Link the child into the parent if there is one unless flagged not to do so.
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
         pParentObj = dynamicCast(pParent, Object);
@@ -428,12 +581,27 @@ NV_STATUS __nvoc_objCreate_Event(Event **ppThis, Dynamic *pParent, NvU32 createF
     status = __nvoc_ctor_Event(pThis, arg_pCallContext, arg_pParams);
     if (status != NV_OK) goto __nvoc_objCreate_Event_cleanup;
 
+    // Assignment has no effect if NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT is set.
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_Event_cleanup:
-    // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+
+    // Unlink the child from the parent if it was linked above.
+    if (pParentObj != NULL)
+        objRemoveChild(pParentObj, &pThis->__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_base_Object);
+
+    // Do not call destructors here since the constructor already called them.
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(Event));
+    else
+    {
+        portMemFree(pThis);
+        *ppThis = NULL;
+    }
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 
@@ -473,6 +641,13 @@ static const struct NVOC_CASTINFO __nvoc_castinfo_INotifier = {
     },
 };
 
+// Not instantiable because it's not derived from class "Object"
+// Not instantiable because it's an abstract class with following pure virtual functions:
+//  inotifyGetNotificationListPtr
+//  inotifySetNotificationShare
+//  inotifyGetNotificationShare
+//  inotifyUnregisterEvent
+//  inotifyGetOrAllocNotifShare
 const struct NVOC_CLASS_DEF __nvoc_class_def_INotifier = 
 {
     /*classInfo=*/ {
@@ -487,6 +662,10 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_INotifier =
     /*pCastInfo=*/          &__nvoc_castinfo_INotifier,
     /*pExportInfo=*/        &__nvoc_export_info_INotifier
 };
+
+// Down-thunk(s) to bridge INotifier methods from ancestors (if any)
+
+// Up-thunk(s) to bridge INotifier methods to ancestors (if any)
 
 const struct NVOC_EXPORT_INFO __nvoc_export_info_INotifier = 
 {
@@ -517,21 +696,26 @@ __nvoc_ctor_INotifier_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_INotifier_1(INotifier *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
+} // End __nvoc_init_funcTable_INotifier_1
 
-    pThis->__inotifyGetNotificationListPtr__ = NULL;
 
-    pThis->__inotifySetNotificationShare__ = NULL;
-
-    pThis->__inotifyGetNotificationShare__ = NULL;
-
-    pThis->__inotifyUnregisterEvent__ = NULL;
-
-    pThis->__inotifyGetOrAllocNotifShare__ = NULL;
-}
-
+// Initialize vtable(s) for 5 virtual method(s).
 void __nvoc_init_funcTable_INotifier(INotifier *pThis) {
+
+    // Per-class vtable definition
+    static const struct NVOC_VTABLE__INotifier vtable = {
+        .__inotifyGetNotificationListPtr__ = NULL,    // pure virtual
+        .__inotifySetNotificationShare__ = NULL,    // pure virtual
+        .__inotifyGetNotificationShare__ = NULL,    // pure virtual
+        .__inotifyUnregisterEvent__ = NULL,    // pure virtual
+        .__inotifyGetOrAllocNotifShare__ = NULL,    // pure virtual
+    };
+
+    // Pointer(s) to per-class vtable(s)
+    pThis->__nvoc_vtable = &vtable;    // (inotify) this
     __nvoc_init_funcTable_INotifier_1(pThis);
 }
 
@@ -575,6 +759,7 @@ static const struct NVOC_CASTINFO __nvoc_castinfo_Notifier = {
     },
 };
 
+// Not instantiable because it's not derived from class "Object"
 const struct NVOC_CLASS_DEF __nvoc_class_def_Notifier = 
 {
     /*classInfo=*/ {
@@ -590,25 +775,42 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_Notifier =
     /*pExportInfo=*/        &__nvoc_export_info_Notifier
 };
 
-static PEVENTNOTIFICATION *__nvoc_thunk_Notifier_inotifyGetNotificationListPtr(struct INotifier *pNotifier) {
-    return notifyGetNotificationListPtr((struct Notifier *)(((unsigned char *)pNotifier) - __nvoc_rtti_Notifier_INotifier.offset));
+// Down-thunk(s) to bridge Notifier methods from ancestors (if any)
+PEVENTNOTIFICATION * __nvoc_down_thunk_Notifier_inotifyGetNotificationListPtr(struct INotifier *pNotifier);    // this
+struct NotifShare * __nvoc_down_thunk_Notifier_inotifyGetNotificationShare(struct INotifier *pNotifier);    // this
+void __nvoc_down_thunk_Notifier_inotifySetNotificationShare(struct INotifier *pNotifier, struct NotifShare *pNotifShare);    // this
+NV_STATUS __nvoc_down_thunk_Notifier_inotifyUnregisterEvent(struct INotifier *pNotifier, NvHandle hNotifierClient, NvHandle hNotifierResource, NvHandle hEventClient, NvHandle hEvent);    // this
+NV_STATUS __nvoc_down_thunk_Notifier_inotifyGetOrAllocNotifShare(struct INotifier *pNotifier, NvHandle hNotifierClient, NvHandle hNotifierResource, struct NotifShare **ppNotifShare);    // this
+
+// 5 down-thunk(s) defined to bridge methods in Notifier from superclasses
+
+// notifyGetNotificationListPtr: virtual override (inotify) base (inotify)
+PEVENTNOTIFICATION * __nvoc_down_thunk_Notifier_inotifyGetNotificationListPtr(struct INotifier *pNotifier) {
+    return notifyGetNotificationListPtr((struct Notifier *)(((unsigned char *) pNotifier) - NV_OFFSETOF(Notifier, __nvoc_base_INotifier)));
 }
 
-static struct NotifShare *__nvoc_thunk_Notifier_inotifyGetNotificationShare(struct INotifier *pNotifier) {
-    return notifyGetNotificationShare((struct Notifier *)(((unsigned char *)pNotifier) - __nvoc_rtti_Notifier_INotifier.offset));
+// notifyGetNotificationShare: virtual override (inotify) base (inotify)
+struct NotifShare * __nvoc_down_thunk_Notifier_inotifyGetNotificationShare(struct INotifier *pNotifier) {
+    return notifyGetNotificationShare((struct Notifier *)(((unsigned char *) pNotifier) - NV_OFFSETOF(Notifier, __nvoc_base_INotifier)));
 }
 
-static void __nvoc_thunk_Notifier_inotifySetNotificationShare(struct INotifier *pNotifier, struct NotifShare *pNotifShare) {
-    notifySetNotificationShare((struct Notifier *)(((unsigned char *)pNotifier) - __nvoc_rtti_Notifier_INotifier.offset), pNotifShare);
+// notifySetNotificationShare: virtual override (inotify) base (inotify)
+void __nvoc_down_thunk_Notifier_inotifySetNotificationShare(struct INotifier *pNotifier, struct NotifShare *pNotifShare) {
+    notifySetNotificationShare((struct Notifier *)(((unsigned char *) pNotifier) - NV_OFFSETOF(Notifier, __nvoc_base_INotifier)), pNotifShare);
 }
 
-static NV_STATUS __nvoc_thunk_Notifier_inotifyUnregisterEvent(struct INotifier *pNotifier, NvHandle hNotifierClient, NvHandle hNotifierResource, NvHandle hEventClient, NvHandle hEvent) {
-    return notifyUnregisterEvent((struct Notifier *)(((unsigned char *)pNotifier) - __nvoc_rtti_Notifier_INotifier.offset), hNotifierClient, hNotifierResource, hEventClient, hEvent);
+// notifyUnregisterEvent: virtual override (inotify) base (inotify)
+NV_STATUS __nvoc_down_thunk_Notifier_inotifyUnregisterEvent(struct INotifier *pNotifier, NvHandle hNotifierClient, NvHandle hNotifierResource, NvHandle hEventClient, NvHandle hEvent) {
+    return notifyUnregisterEvent((struct Notifier *)(((unsigned char *) pNotifier) - NV_OFFSETOF(Notifier, __nvoc_base_INotifier)), hNotifierClient, hNotifierResource, hEventClient, hEvent);
 }
 
-static NV_STATUS __nvoc_thunk_Notifier_inotifyGetOrAllocNotifShare(struct INotifier *pNotifier, NvHandle hNotifierClient, NvHandle hNotifierResource, struct NotifShare **ppNotifShare) {
-    return notifyGetOrAllocNotifShare((struct Notifier *)(((unsigned char *)pNotifier) - __nvoc_rtti_Notifier_INotifier.offset), hNotifierClient, hNotifierResource, ppNotifShare);
+// notifyGetOrAllocNotifShare: virtual override (inotify) base (inotify)
+NV_STATUS __nvoc_down_thunk_Notifier_inotifyGetOrAllocNotifShare(struct INotifier *pNotifier, NvHandle hNotifierClient, NvHandle hNotifierResource, struct NotifShare **ppNotifShare) {
+    return notifyGetOrAllocNotifShare((struct Notifier *)(((unsigned char *) pNotifier) - NV_OFFSETOF(Notifier, __nvoc_base_INotifier)), hNotifierClient, hNotifierResource, ppNotifShare);
 }
+
+
+// Up-thunk(s) to bridge Notifier methods to ancestors (if any)
 
 const struct NVOC_EXPORT_INFO __nvoc_export_info_Notifier = 
 {
@@ -646,31 +848,32 @@ __nvoc_ctor_Notifier_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_Notifier_1(Notifier *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
+} // End __nvoc_init_funcTable_Notifier_1
 
-    pThis->__notifyGetNotificationListPtr__ = &notifyGetNotificationListPtr_IMPL;
 
-    pThis->__notifyGetNotificationShare__ = &notifyGetNotificationShare_IMPL;
-
-    pThis->__notifySetNotificationShare__ = &notifySetNotificationShare_IMPL;
-
-    pThis->__notifyUnregisterEvent__ = &notifyUnregisterEvent_IMPL;
-
-    pThis->__notifyGetOrAllocNotifShare__ = &notifyGetOrAllocNotifShare_IMPL;
-
-    pThis->__nvoc_base_INotifier.__inotifyGetNotificationListPtr__ = &__nvoc_thunk_Notifier_inotifyGetNotificationListPtr;
-
-    pThis->__nvoc_base_INotifier.__inotifyGetNotificationShare__ = &__nvoc_thunk_Notifier_inotifyGetNotificationShare;
-
-    pThis->__nvoc_base_INotifier.__inotifySetNotificationShare__ = &__nvoc_thunk_Notifier_inotifySetNotificationShare;
-
-    pThis->__nvoc_base_INotifier.__inotifyUnregisterEvent__ = &__nvoc_thunk_Notifier_inotifyUnregisterEvent;
-
-    pThis->__nvoc_base_INotifier.__inotifyGetOrAllocNotifShare__ = &__nvoc_thunk_Notifier_inotifyGetOrAllocNotifShare;
-}
-
+// Initialize vtable(s) for 5 virtual method(s).
 void __nvoc_init_funcTable_Notifier(Notifier *pThis) {
+
+    // Per-class vtable definition
+    static const struct NVOC_VTABLE__Notifier vtable = {
+        .__notifyGetNotificationListPtr__ = &notifyGetNotificationListPtr_IMPL,    // virtual override (inotify) base (inotify)
+        .INotifier.__inotifyGetNotificationListPtr__ = &__nvoc_down_thunk_Notifier_inotifyGetNotificationListPtr,    // pure virtual
+        .__notifyGetNotificationShare__ = &notifyGetNotificationShare_IMPL,    // virtual override (inotify) base (inotify)
+        .INotifier.__inotifyGetNotificationShare__ = &__nvoc_down_thunk_Notifier_inotifyGetNotificationShare,    // pure virtual
+        .__notifySetNotificationShare__ = &notifySetNotificationShare_IMPL,    // virtual override (inotify) base (inotify)
+        .INotifier.__inotifySetNotificationShare__ = &__nvoc_down_thunk_Notifier_inotifySetNotificationShare,    // pure virtual
+        .__notifyUnregisterEvent__ = &notifyUnregisterEvent_IMPL,    // virtual override (inotify) base (inotify)
+        .INotifier.__inotifyUnregisterEvent__ = &__nvoc_down_thunk_Notifier_inotifyUnregisterEvent,    // pure virtual
+        .__notifyGetOrAllocNotifShare__ = &notifyGetOrAllocNotifShare_IMPL,    // virtual override (inotify) base (inotify)
+        .INotifier.__inotifyGetOrAllocNotifShare__ = &__nvoc_down_thunk_Notifier_inotifyGetOrAllocNotifShare,    // pure virtual
+    };
+
+    // Pointer(s) to per-class vtable(s)
+    pThis->__nvoc_base_INotifier.__nvoc_vtable = &vtable.INotifier;    // (inotify) super
+    pThis->__nvoc_vtable = &vtable;    // (notify) this
     __nvoc_init_funcTable_Notifier_1(pThis);
 }
 

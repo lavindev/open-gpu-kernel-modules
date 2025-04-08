@@ -66,6 +66,10 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_OBJSYS =
     /*pExportInfo=*/        &__nvoc_export_info_OBJSYS
 };
 
+// Down-thunk(s) to bridge OBJSYS methods from ancestors (if any)
+
+// Up-thunk(s) to bridge OBJSYS methods to ancestors (if any)
+
 const struct NVOC_EXPORT_INFO __nvoc_export_info_OBJSYS = 
 {
     /*numEntries=*/     0,
@@ -83,13 +87,22 @@ void __nvoc_dtor_OBJSYS(OBJSYS *pThis) {
 
 void __nvoc_init_dataField_OBJSYS(OBJSYS *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
-    pThis->setProperty(pThis, PDB_PROP_SYS_VALIDATE_CLIENT_HANDLE, ((0) || (1)));
+    pThis->setProperty(pThis, PDB_PROP_SYS_VALIDATE_CLIENT_HANDLE, ((0) || (1) || (0)));
     pThis->setProperty(pThis, PDB_PROP_SYS_VALIDATE_CLIENT_HANDLE_STRICT, ((1) && !0));
     pThis->setProperty(pThis, PDB_PROP_SYS_VALIDATE_KERNEL_BUFFERS, (0));
     pThis->setProperty(pThis, PDB_PROP_SYS_INTERNAL_EVENT_BUFFER_ALLOC_ALLOWED, ((0) || (0)));
     pThis->setProperty(pThis, PDB_PROP_SYS_IS_AGGRESSIVE_GC6_ENABLED, (0));
     pThis->setProperty(pThis, PDB_PROP_SYS_PRIORITY_BOOST, (0));
     pThis->setProperty(pThis, PDB_PROP_SYS_PRIORITY_THROTTLE_DELAY_US, 16 * 1000);
+    pThis->setProperty(pThis, PDB_PROP_SYS_RM_LOCK_TIME_COLLECT, NV_FALSE);
+    pThis->setProperty(pThis, PDB_PROP_SYS_ENABLE_RM_TEST_ONLY_CODE, NV_FALSE);
+    pThis->setProperty(pThis, PDB_PROP_SYS_ROUTE_TO_PHYSICAL_LOCK_BYPASS, NV_TRUE);
+    pThis->setProperty(pThis, PDB_PROP_SYS_ENABLE_FORCE_SHARED_LOCK, NV_TRUE);
+
+    pThis->bUseDeferredClientListFree = NV_FALSE;
+
+    pThis->clientListDeferredFreeLimit = 0;
+    pThis->setProperty(pThis, PDB_PROP_SYS_RECOVERY_REBOOT_REQUIRED, NV_FALSE);
 }
 
 NV_STATUS __nvoc_ctor_Object(Object* );
@@ -116,13 +129,22 @@ __nvoc_ctor_OBJSYS_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_OBJSYS_1(OBJSYS *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
+} // End __nvoc_init_funcTable_OBJSYS_1
 
-    pThis->__sysCaptureState__ = &sysCaptureState_IMPL;
-}
 
+// Initialize vtable(s) for 1 virtual method(s).
 void __nvoc_init_funcTable_OBJSYS(OBJSYS *pThis) {
+
+    // Per-class vtable definition
+    static const struct NVOC_VTABLE__OBJSYS vtable = {
+        .__sysCaptureState__ = &sysCaptureState_IMPL,    // virtual
+    };
+
+    // Pointer(s) to per-class vtable(s)
+    pThis->__nvoc_vtable = &vtable;    // (sys) this
     __nvoc_init_funcTable_OBJSYS_1(pThis);
 }
 
@@ -137,18 +159,26 @@ void __nvoc_init_OBJSYS(OBJSYS *pThis) {
     __nvoc_init_funcTable_OBJSYS(pThis);
 }
 
-NV_STATUS __nvoc_objCreate_OBJSYS(OBJSYS **ppThis, Dynamic *pParent, NvU32 createFlags) {
+NV_STATUS __nvoc_objCreate_OBJSYS(OBJSYS **ppThis, Dynamic *pParent, NvU32 createFlags)
+{
     NV_STATUS status;
-    Object *pParentObj;
+    Object *pParentObj = NULL;
     OBJSYS *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(OBJSYS));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    // Assign `pThis`, allocating memory unless suppressed by flag.
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(OBJSYS), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
+    // Zero is the initial value for everything.
     portMemSet(pThis, 0, sizeof(OBJSYS));
 
+    // Initialize runtime type information.
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_OBJSYS);
 
+    pThis->__nvoc_base_Object.createFlags = createFlags;
+
+    // Link the child into the parent if there is one unless flagged not to do so.
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
         pParentObj = dynamicCast(pParent, Object);
@@ -163,12 +193,27 @@ NV_STATUS __nvoc_objCreate_OBJSYS(OBJSYS **ppThis, Dynamic *pParent, NvU32 creat
     status = __nvoc_ctor_OBJSYS(pThis);
     if (status != NV_OK) goto __nvoc_objCreate_OBJSYS_cleanup;
 
+    // Assignment has no effect if NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT is set.
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_OBJSYS_cleanup:
-    // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+
+    // Unlink the child from the parent if it was linked above.
+    if (pParentObj != NULL)
+        objRemoveChild(pParentObj, &pThis->__nvoc_base_Object);
+
+    // Do not call destructors here since the constructor already called them.
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(OBJSYS));
+    else
+    {
+        portMemFree(pThis);
+        *ppThis = NULL;
+    }
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 

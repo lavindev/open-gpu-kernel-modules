@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -74,6 +74,34 @@ Dynamic *objFindAncestor_IMPL(Dynamic *pDynamic, NVOC_CLASS_ID classId)
 void objAddChild_IMPL(Object *pObj, Object *pChild)
 {
     NV_ASSERT(pChild->pParent == NULL);
+
+#if defined(DEBUG)
+    if (pChild->createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+    {
+        //
+        // For objects constructed in place it is possible to call objCreate() twice without calling objDelete()
+        // This results in a loop in parent's child list, making it endless
+        // This check is supposed to make catching this issue easier without affecting perf
+        //
+         Object *pCurrentChild = pObj->childTree.pChild;
+
+         while (pCurrentChild != NULL)
+         {
+             if (pCurrentChild == pChild)
+             {
+#if NV_PRINTF_STRINGS_ALLOWED
+                portDbgPrintf("NVOC: %s: class %s called in-place objCreate() twice without calling objDelete()",
+                               __FUNCTION__,
+                               objGetClassInfo(pChild)->name);
+#endif // NV_PRINTF_STRINGS_ALLOWED
+                 PORT_BREAKPOINT_DEBUG();
+             }
+
+             pCurrentChild = pCurrentChild->childTree.pSibling;
+         }
+     }
+#endif // defined(DEBUG)
+
     pChild->pParent = pObj;
     pChild->childTree.pSibling = pObj->childTree.pChild;
     pObj->childTree.pChild = pChild;
@@ -116,6 +144,25 @@ Object *objGetDirectParent_IMPL(Object *pObj)
     return pObj->pParent;
 }
 
+NV_STATUS __nvoc_handleObjCreateMemAlloc(NvU32 createFlags, NvU32 allocSize, void **ppLocalPtr, void **ppThis)
+{
+    if (allocSize == 0 || ppThis == NULL || ppLocalPtr == NULL)
+        return NV_ERR_INVALID_PARAMETER;
+
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+    {
+        *ppLocalPtr = *ppThis;
+    }
+    else
+    {
+        *ppLocalPtr = portMemAllocNonPaged(allocSize);
+        if (*ppLocalPtr == NULL)
+            return NV_ERR_NO_MEMORY;
+    }
+
+    return NV_OK;
+}
+
 //! Internal backing method for objDelete.
 void __nvoc_objDelete(Dynamic *pDynamic)
 {
@@ -126,8 +173,14 @@ void __nvoc_objDelete(Dynamic *pDynamic)
     {
         return;
     }
+    // objCreate might be skipped for NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT objects.
+    // In result, objDelete will be called on zeroed objects, skip their destruction.
+    if (pDynamic->__nvoc_rtti == NULL)
+    {
+        return;
+    }
 
-    pDynamic->__nvoc_rtti->dtor(pDynamic);
+    __nvoc_destructFromBase(pDynamic);
 
     pObj = dynamicCast(pDynamic, Object);
     if (pObj->pParent != NULL)
@@ -147,7 +200,8 @@ void __nvoc_objDelete(Dynamic *pDynamic)
     }
 
     pDerivedObj = __nvoc_fullyDerive(pDynamic);
-    portMemFree(pDerivedObj);
+    if (!(pObj->createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT))
+        portMemFree(pDerivedObj);
 }
 
 //! Internal method to fill out an object's RTTI pointers from a class definition.
@@ -175,6 +229,15 @@ NV_STATUS __nvoc_objCreateDynamic(
 
     const struct NVOC_CLASS_DEF *pClassDef =
         (const struct NVOC_CLASS_DEF*)pClassInfo;
+
+    if (pClassDef == NULL)
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+    else if (pClassDef->objCreatefn == NULL)
+    {
+        return NV_ERR_INVALID_CLASS;
+    }
 
     va_start(args, createFlags);
     status = pClassDef->objCreatefn(ppNewObject, pParent, createFlags, args);
@@ -247,6 +310,41 @@ void __nvoc_destructFromBase(Dynamic *pDynamic)
     pDerivedObj->__nvoc_rtti->dtor(pDerivedObj);
 }
 
+const struct NVOC_EXPORTED_METHOD_DEF* nvocGetExportedMethodDefFromMethodInfo_IMPL(const struct NVOC_EXPORT_INFO *pExportInfo, NvU32 methodId)
+{
+    NvU32 exportLength;
+    const struct NVOC_EXPORTED_METHOD_DEF *exportArray;
+
+    if (pExportInfo == NULL)
+        return NULL;
+
+    exportLength = pExportInfo->numEntries;
+    exportArray =  pExportInfo->pExportEntries;
+
+    if (exportArray != NULL && exportLength > 0)
+    {
+        // The export array is sorted by methodId, so we can binary search it
+        NvU32 low = 0;
+        NvU32 high = exportLength;
+        while (1)
+        {
+            NvU32 mid  = (low + high) / 2;
+
+            if (exportArray[mid].methodId == methodId)
+                return &exportArray[mid];
+
+            if (high == mid || low == mid)
+                break;
+
+            if (exportArray[mid].methodId > methodId)
+                high = mid;
+            else
+                low = mid;
+        }
+    }
+
+    return NULL;
+}
 
 const struct NVOC_EXPORTED_METHOD_DEF *objGetExportedMethodDef_IMPL(Dynamic *pObj, NvU32 methodId)
 {
@@ -255,41 +353,11 @@ const struct NVOC_EXPORTED_METHOD_DEF *objGetExportedMethodDef_IMPL(Dynamic *pOb
     const struct NVOC_RTTI *const *relatives = pCastInfo->relatives;
     NvU32 i;
 
-
     for (i = 0; i < numRelatives; i++)
     {
-        const struct NVOC_RTTI *relative;
-        const struct NVOC_EXPORT_INFO* exportData;
-        NvU32 exportLength;
-        const struct NVOC_EXPORTED_METHOD_DEF *exportArray;
-
-        relative = relatives[i];
-
-        exportData = relative->pClassDef->pExportInfo;
-        exportLength = exportData->numEntries;
-        exportArray =  exportData->pExportEntries;
-
-        if (exportArray != NULL && exportLength > 0)
-        {
-            // The export array is sorted by methodId, so we can binary search it
-            NvU32 low = 0;
-            NvU32 high = exportLength;
-            while (1)
-            {
-                NvU32 mid  = (low + high) / 2;
-
-                if (exportArray[mid].methodId == methodId)
-                    return &exportArray[mid];
-
-                if (high == mid || low == mid)
-                    break;
-
-                if (exportArray[mid].methodId > methodId)
-                    high = mid;
-                else
-                    low = mid;
-            }
-        }
+        const void *pDef = nvocGetExportedMethodDefFromMethodInfo_IMPL(relatives[i]->pClassDef->pExportInfo, methodId);
+        if (pDef != NULL)
+            return pDef;
     }
 
     return NULL;

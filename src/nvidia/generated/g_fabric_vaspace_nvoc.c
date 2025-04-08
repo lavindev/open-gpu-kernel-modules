@@ -66,121 +66,189 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_FABRIC_VASPACE =
     /*pExportInfo=*/        &__nvoc_export_info_FABRIC_VASPACE
 };
 
-static NV_STATUS __nvoc_thunk_FABRIC_VASPACE_vaspaceConstruct_(struct OBJVASPACE *pFabricVAS, NvU32 classId, NvU32 vaspaceId, NvU64 vaStart, NvU64 vaLimit, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 flags) {
-    return fabricvaspaceConstruct_((struct FABRIC_VASPACE *)(((unsigned char *)pFabricVAS) - __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags);
+// Down-thunk(s) to bridge FABRIC_VASPACE methods from ancestors (if any)
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspaceConstruct_(struct OBJVASPACE *pFabricVAS, NvU32 classId, NvU32 vaspaceId, NvU64 vaStart, NvU64 vaLimit, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 flags);    // this
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspaceAlloc(struct OBJVASPACE *pFabricVAS, NvU64 size, NvU64 align, NvU64 rangeLo, NvU64 rangeHi, NvU64 pageSize, VAS_ALLOC_FLAGS flags, NvU64 *pAddr);    // this
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspaceFree(struct OBJVASPACE *pFabricVAS, NvU64 vAddr);    // this
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspaceMap(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi, const MMU_MAP_TARGET *pTarget, const VAS_MAP_FLAGS flags);    // this
+void __nvoc_down_thunk_FABRIC_VASPACE_vaspaceUnmap(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi);    // this
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspaceApplyDefaultAlignment(struct OBJVASPACE *pFabricVAS, const FB_ALLOC_INFO *pAllocInfo, NvU64 *pAlign, NvU64 *pSize, NvU64 *pPageSizeLockMask);    // this
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspaceGetVasInfo(struct OBJVASPACE *pFabricVAS, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *pParams);    // this
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspacePinRootPageDir(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu);    // this
+void __nvoc_down_thunk_FABRIC_VASPACE_vaspaceUnpinRootPageDir(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu);    // this
+void __nvoc_down_thunk_FABRIC_VASPACE_vaspaceInvalidateTlb(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu, VAS_PTE_UPDATE_TYPE type);    // this
+
+// 10 down-thunk(s) defined to bridge methods in FABRIC_VASPACE from superclasses
+
+// fabricvaspaceConstruct_: virtual override (vaspace) base (vaspace)
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspaceConstruct_(struct OBJVASPACE *pFabricVAS, NvU32 classId, NvU32 vaspaceId, NvU64 vaStart, NvU64 vaLimit, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 flags) {
+    return fabricvaspaceConstruct_((struct FABRIC_VASPACE *)(((unsigned char *) pFabricVAS) - NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags);
 }
 
-static NV_STATUS __nvoc_thunk_FABRIC_VASPACE_vaspaceAlloc(struct OBJVASPACE *pFabricVAS, NvU64 size, NvU64 align, NvU64 rangeLo, NvU64 rangeHi, NvU64 pageSize, VAS_ALLOC_FLAGS flags, NvU64 *pAddr) {
-    return fabricvaspaceAlloc((struct FABRIC_VASPACE *)(((unsigned char *)pFabricVAS) - __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), size, align, rangeLo, rangeHi, pageSize, flags, pAddr);
+// fabricvaspaceAlloc: virtual override (vaspace) base (vaspace)
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspaceAlloc(struct OBJVASPACE *pFabricVAS, NvU64 size, NvU64 align, NvU64 rangeLo, NvU64 rangeHi, NvU64 pageSize, VAS_ALLOC_FLAGS flags, NvU64 *pAddr) {
+    return fabricvaspaceAlloc((struct FABRIC_VASPACE *)(((unsigned char *) pFabricVAS) - NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), size, align, rangeLo, rangeHi, pageSize, flags, pAddr);
 }
 
-static NV_STATUS __nvoc_thunk_FABRIC_VASPACE_vaspaceFree(struct OBJVASPACE *pFabricVAS, NvU64 vAddr) {
-    return fabricvaspaceFree((struct FABRIC_VASPACE *)(((unsigned char *)pFabricVAS) - __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), vAddr);
+// fabricvaspaceFree: virtual override (vaspace) base (vaspace)
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspaceFree(struct OBJVASPACE *pFabricVAS, NvU64 vAddr) {
+    return fabricvaspaceFree((struct FABRIC_VASPACE *)(((unsigned char *) pFabricVAS) - NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), vAddr);
 }
 
-static NV_STATUS __nvoc_thunk_FABRIC_VASPACE_vaspaceMap(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi, const MMU_MAP_TARGET *pTarget, const VAS_MAP_FLAGS flags) {
-    return fabricvaspaceMap((struct FABRIC_VASPACE *)(((unsigned char *)pFabricVAS) - __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pGpu, vaLo, vaHi, pTarget, flags);
+// fabricvaspaceMap: virtual override (vaspace) base (vaspace)
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspaceMap(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi, const MMU_MAP_TARGET *pTarget, const VAS_MAP_FLAGS flags) {
+    return fabricvaspaceMap((struct FABRIC_VASPACE *)(((unsigned char *) pFabricVAS) - NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pGpu, vaLo, vaHi, pTarget, flags);
 }
 
-static void __nvoc_thunk_FABRIC_VASPACE_vaspaceUnmap(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi) {
-    fabricvaspaceUnmap((struct FABRIC_VASPACE *)(((unsigned char *)pFabricVAS) - __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pGpu, vaLo, vaHi);
+// fabricvaspaceUnmap: virtual override (vaspace) base (vaspace)
+void __nvoc_down_thunk_FABRIC_VASPACE_vaspaceUnmap(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi) {
+    fabricvaspaceUnmap((struct FABRIC_VASPACE *)(((unsigned char *) pFabricVAS) - NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pGpu, vaLo, vaHi);
 }
 
-static NV_STATUS __nvoc_thunk_FABRIC_VASPACE_vaspaceApplyDefaultAlignment(struct OBJVASPACE *pFabricVAS, const FB_ALLOC_INFO *pAllocInfo, NvU64 *pAlign, NvU64 *pSize, NvU64 *pPageSizeLockMask) {
-    return fabricvaspaceApplyDefaultAlignment((struct FABRIC_VASPACE *)(((unsigned char *)pFabricVAS) - __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pAllocInfo, pAlign, pSize, pPageSizeLockMask);
+// fabricvaspaceApplyDefaultAlignment: virtual override (vaspace) base (vaspace)
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspaceApplyDefaultAlignment(struct OBJVASPACE *pFabricVAS, const FB_ALLOC_INFO *pAllocInfo, NvU64 *pAlign, NvU64 *pSize, NvU64 *pPageSizeLockMask) {
+    return fabricvaspaceApplyDefaultAlignment((struct FABRIC_VASPACE *)(((unsigned char *) pFabricVAS) - NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pAllocInfo, pAlign, pSize, pPageSizeLockMask);
 }
 
-static NV_STATUS __nvoc_thunk_FABRIC_VASPACE_vaspaceGetVasInfo(struct OBJVASPACE *pFabricVAS, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *pParams) {
-    return fabricvaspaceGetVasInfo((struct FABRIC_VASPACE *)(((unsigned char *)pFabricVAS) - __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pParams);
+// fabricvaspaceGetVasInfo: virtual override (vaspace) base (vaspace)
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspaceGetVasInfo(struct OBJVASPACE *pFabricVAS, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *pParams) {
+    return fabricvaspaceGetVasInfo((struct FABRIC_VASPACE *)(((unsigned char *) pFabricVAS) - NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pParams);
 }
 
-static NV_STATUS __nvoc_thunk_FABRIC_VASPACE_vaspacePinRootPageDir(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu) {
-    return fabricvaspacePinRootPageDir((struct FABRIC_VASPACE *)(((unsigned char *)pFabricVAS) - __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pGpu);
+// fabricvaspacePinRootPageDir: virtual override (vaspace) base (vaspace)
+NV_STATUS __nvoc_down_thunk_FABRIC_VASPACE_vaspacePinRootPageDir(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu) {
+    return fabricvaspacePinRootPageDir((struct FABRIC_VASPACE *)(((unsigned char *) pFabricVAS) - NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pGpu);
 }
 
-static void __nvoc_thunk_FABRIC_VASPACE_vaspaceUnpinRootPageDir(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu) {
-    fabricvaspaceUnpinRootPageDir((struct FABRIC_VASPACE *)(((unsigned char *)pFabricVAS) - __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pGpu);
+// fabricvaspaceUnpinRootPageDir: virtual override (vaspace) base (vaspace)
+void __nvoc_down_thunk_FABRIC_VASPACE_vaspaceUnpinRootPageDir(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu) {
+    fabricvaspaceUnpinRootPageDir((struct FABRIC_VASPACE *)(((unsigned char *) pFabricVAS) - NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pGpu);
 }
 
-static void __nvoc_thunk_FABRIC_VASPACE_vaspaceInvalidateTlb(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu, VAS_PTE_UPDATE_TYPE type) {
-    fabricvaspaceInvalidateTlb((struct FABRIC_VASPACE *)(((unsigned char *)pFabricVAS) - __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pGpu, type);
+// fabricvaspaceInvalidateTlb: virtual override (vaspace) base (vaspace)
+void __nvoc_down_thunk_FABRIC_VASPACE_vaspaceInvalidateTlb(struct OBJVASPACE *pFabricVAS, struct OBJGPU *pGpu, VAS_PTE_UPDATE_TYPE type) {
+    fabricvaspaceInvalidateTlb((struct FABRIC_VASPACE *)(((unsigned char *) pFabricVAS) - NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pGpu, type);
 }
 
-static NvBool __nvoc_thunk_OBJVASPACE_fabricvaspaceIsMirrored(struct FABRIC_VASPACE *pVAS) {
-    return vaspaceIsMirrored((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset));
+
+// Up-thunk(s) to bridge FABRIC_VASPACE methods to ancestors (if any)
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceIncAllocRefCnt(struct FABRIC_VASPACE *pVAS, NvU64 vAddr);    // this
+NvU64 __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetVaStart(struct FABRIC_VASPACE *pVAS);    // this
+NvU64 __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetVaLimit(struct FABRIC_VASPACE *pVAS);    // this
+NvU32 __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetFlags(struct FABRIC_VASPACE *pVAS);    // this
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceReserveMempool(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu, struct Device *pDevice, NvU64 size, NvU64 pageSizeLockMask, NvU32 flags);    // this
+OBJEHEAP * __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetHeap(struct FABRIC_VASPACE *pVAS);    // this
+NvU64 __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetMapPageSize(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu, EMEMBLOCK *pMemBlock);    // this
+NvU64 __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetBigPageSize(struct FABRIC_VASPACE *pVAS);    // this
+NvBool __nvoc_up_thunk_OBJVASPACE_fabricvaspaceIsMirrored(struct FABRIC_VASPACE *pVAS);    // this
+NvBool __nvoc_up_thunk_OBJVASPACE_fabricvaspaceIsFaultCapable(struct FABRIC_VASPACE *pVAS);    // this
+NvBool __nvoc_up_thunk_OBJVASPACE_fabricvaspaceIsExternallyOwned(struct FABRIC_VASPACE *pVAS);    // this
+NvBool __nvoc_up_thunk_OBJVASPACE_fabricvaspaceIsAtsEnabled(struct FABRIC_VASPACE *pVAS);    // this
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetPasid(struct FABRIC_VASPACE *pVAS, NvU32 *pPasid);    // this
+PMEMORY_DESCRIPTOR __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetPageDirBase(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu);    // this
+PMEMORY_DESCRIPTOR __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetKernelPageDirBase(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu);    // this
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetPageTableInfo(struct FABRIC_VASPACE *pVAS, NV0080_CTRL_DMA_GET_PDE_INFO_PARAMS *pParams);    // this
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetPteInfo(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_GET_PTE_INFO_PARAMS *pParams, RmPhysAddr *pPhysAddr);    // this
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceSetPteInfo(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_SET_PTE_INFO_PARAMS *pParams);    // this
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceFreeV2(struct FABRIC_VASPACE *pVAS, NvU64 vAddr, NvU64 *pSize);    // this
+
+// 19 up-thunk(s) defined to bridge methods in FABRIC_VASPACE to superclasses
+
+// fabricvaspaceIncAllocRefCnt: inline virtual inherited (vaspace) base (vaspace) body
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceIncAllocRefCnt(struct FABRIC_VASPACE *pVAS, NvU64 vAddr) {
+    return vaspaceIncAllocRefCnt((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), vAddr);
 }
 
-static NvBool __nvoc_thunk_OBJVASPACE_fabricvaspaceIsExternallyOwned(struct FABRIC_VASPACE *pVAS) {
-    return vaspaceIsExternallyOwned((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset));
+// fabricvaspaceGetVaStart: virtual inherited (vaspace) base (vaspace)
+NvU64 __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetVaStart(struct FABRIC_VASPACE *pVAS) {
+    return vaspaceGetVaStart((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)));
 }
 
-static NvBool __nvoc_thunk_OBJVASPACE_fabricvaspaceIsInternalVaRestricted(struct FABRIC_VASPACE *pVAS) {
-    return vaspaceIsInternalVaRestricted((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset));
+// fabricvaspaceGetVaLimit: virtual inherited (vaspace) base (vaspace)
+NvU64 __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetVaLimit(struct FABRIC_VASPACE *pVAS) {
+    return vaspaceGetVaLimit((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)));
 }
 
-static NvU32 __nvoc_thunk_OBJVASPACE_fabricvaspaceGetFlags(struct FABRIC_VASPACE *pVAS) {
-    return vaspaceGetFlags((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset));
+// fabricvaspaceGetFlags: inline virtual inherited (vaspace) base (vaspace) body
+NvU32 __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetFlags(struct FABRIC_VASPACE *pVAS) {
+    return vaspaceGetFlags((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)));
 }
 
-static NvBool __nvoc_thunk_OBJVASPACE_fabricvaspaceIsAtsEnabled(struct FABRIC_VASPACE *pVAS) {
-    return vaspaceIsAtsEnabled((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset));
+// fabricvaspaceReserveMempool: inline virtual inherited (vaspace) base (vaspace) body
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceReserveMempool(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu, struct Device *pDevice, NvU64 size, NvU64 pageSizeLockMask, NvU32 flags) {
+    return vaspaceReserveMempool((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pGpu, pDevice, size, pageSizeLockMask, flags);
 }
 
-static NvU32 __nvoc_thunk_OBJVASPACE_fabricvaspaceGetBigPageSize(struct FABRIC_VASPACE *pVAS) {
-    return vaspaceGetBigPageSize((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset));
+// fabricvaspaceGetHeap: inline virtual inherited (vaspace) base (vaspace) body
+OBJEHEAP * __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetHeap(struct FABRIC_VASPACE *pVAS) {
+    return vaspaceGetHeap((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)));
 }
 
-static NV_STATUS __nvoc_thunk_OBJVASPACE_fabricvaspaceGetPteInfo(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_GET_PTE_INFO_PARAMS *pParams, RmPhysAddr *pPhysAddr) {
-    return vaspaceGetPteInfo((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pGpu, pParams, pPhysAddr);
+// fabricvaspaceGetMapPageSize: inline virtual inherited (vaspace) base (vaspace) body
+NvU64 __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetMapPageSize(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu, EMEMBLOCK *pMemBlock) {
+    return vaspaceGetMapPageSize((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pGpu, pMemBlock);
 }
 
-static NvU64 __nvoc_thunk_OBJVASPACE_fabricvaspaceGetVaLimit(struct FABRIC_VASPACE *pVAS) {
-    return vaspaceGetVaLimit((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset));
+// fabricvaspaceGetBigPageSize: inline virtual inherited (vaspace) base (vaspace) body
+NvU64 __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetBigPageSize(struct FABRIC_VASPACE *pVAS) {
+    return vaspaceGetBigPageSize((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)));
 }
 
-static PMEMORY_DESCRIPTOR __nvoc_thunk_OBJVASPACE_fabricvaspaceGetPageDirBase(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu) {
-    return vaspaceGetPageDirBase((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pGpu);
+// fabricvaspaceIsMirrored: inline virtual inherited (vaspace) base (vaspace) body
+NvBool __nvoc_up_thunk_OBJVASPACE_fabricvaspaceIsMirrored(struct FABRIC_VASPACE *pVAS) {
+    return vaspaceIsMirrored((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)));
 }
 
-static PMEMORY_DESCRIPTOR __nvoc_thunk_OBJVASPACE_fabricvaspaceGetKernelPageDirBase(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu) {
-    return vaspaceGetKernelPageDirBase((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pGpu);
+// fabricvaspaceIsFaultCapable: inline virtual inherited (vaspace) base (vaspace) body
+NvBool __nvoc_up_thunk_OBJVASPACE_fabricvaspaceIsFaultCapable(struct FABRIC_VASPACE *pVAS) {
+    return vaspaceIsFaultCapable((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)));
 }
 
-static NvU32 __nvoc_thunk_OBJVASPACE_fabricvaspaceGetMapPageSize(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu, EMEMBLOCK *pMemBlock) {
-    return vaspaceGetMapPageSize((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pGpu, pMemBlock);
+// fabricvaspaceIsExternallyOwned: inline virtual inherited (vaspace) base (vaspace) body
+NvBool __nvoc_up_thunk_OBJVASPACE_fabricvaspaceIsExternallyOwned(struct FABRIC_VASPACE *pVAS) {
+    return vaspaceIsExternallyOwned((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)));
 }
 
-static struct OBJEHEAP *__nvoc_thunk_OBJVASPACE_fabricvaspaceGetHeap(struct FABRIC_VASPACE *pVAS) {
-    return vaspaceGetHeap((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset));
+// fabricvaspaceIsAtsEnabled: inline virtual inherited (vaspace) base (vaspace) body
+NvBool __nvoc_up_thunk_OBJVASPACE_fabricvaspaceIsAtsEnabled(struct FABRIC_VASPACE *pVAS) {
+    return vaspaceIsAtsEnabled((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)));
 }
 
-static NvBool __nvoc_thunk_OBJVASPACE_fabricvaspaceIsFaultCapable(struct FABRIC_VASPACE *pVAS) {
-    return vaspaceIsFaultCapable((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset));
+// fabricvaspaceGetPasid: inline virtual inherited (vaspace) base (vaspace) body
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetPasid(struct FABRIC_VASPACE *pVAS, NvU32 *pPasid) {
+    return vaspaceGetPasid((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pPasid);
 }
 
-static NvU64 __nvoc_thunk_OBJVASPACE_fabricvaspaceGetVaStart(struct FABRIC_VASPACE *pVAS) {
-    return vaspaceGetVaStart((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset));
+// fabricvaspaceGetPageDirBase: inline virtual inherited (vaspace) base (vaspace) body
+PMEMORY_DESCRIPTOR __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetPageDirBase(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu) {
+    return vaspaceGetPageDirBase((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pGpu);
 }
 
-static NV_STATUS __nvoc_thunk_OBJVASPACE_fabricvaspaceIncAllocRefCnt(struct FABRIC_VASPACE *pVAS, NvU64 vAddr) {
-    return vaspaceIncAllocRefCnt((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), vAddr);
+// fabricvaspaceGetKernelPageDirBase: inline virtual inherited (vaspace) base (vaspace) body
+PMEMORY_DESCRIPTOR __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetKernelPageDirBase(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu) {
+    return vaspaceGetKernelPageDirBase((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pGpu);
 }
 
-static NV_STATUS __nvoc_thunk_OBJVASPACE_fabricvaspaceSetPteInfo(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_SET_PTE_INFO_PARAMS *pParams) {
-    return vaspaceSetPteInfo((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pGpu, pParams);
+// fabricvaspaceGetPageTableInfo: inline virtual inherited (vaspace) base (vaspace) body
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetPageTableInfo(struct FABRIC_VASPACE *pVAS, NV0080_CTRL_DMA_GET_PDE_INFO_PARAMS *pParams) {
+    return vaspaceGetPageTableInfo((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pParams);
 }
 
-static NV_STATUS __nvoc_thunk_OBJVASPACE_fabricvaspaceGetPasid(struct FABRIC_VASPACE *pVAS, NvU32 *pPasid) {
-    return vaspaceGetPasid((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pPasid);
+// fabricvaspaceGetPteInfo: inline virtual inherited (vaspace) base (vaspace) body
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetPteInfo(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_GET_PTE_INFO_PARAMS *pParams, RmPhysAddr *pPhysAddr) {
+    return vaspaceGetPteInfo((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pGpu, pParams, pPhysAddr);
 }
 
-static NV_STATUS __nvoc_thunk_OBJVASPACE_fabricvaspaceGetPageTableInfo(struct FABRIC_VASPACE *pVAS, NV0080_CTRL_DMA_GET_PDE_INFO_PARAMS *pParams) {
-    return vaspaceGetPageTableInfo((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pParams);
+// fabricvaspaceSetPteInfo: inline virtual inherited (vaspace) base (vaspace) body
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceSetPteInfo(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_SET_PTE_INFO_PARAMS *pParams) {
+    return vaspaceSetPteInfo((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), pGpu, pParams);
 }
 
-static NV_STATUS __nvoc_thunk_OBJVASPACE_fabricvaspaceReserveMempool(struct FABRIC_VASPACE *pVAS, struct OBJGPU *pGpu, NvHandle hClient, NvU64 size, NvU64 pageSizeLockMask, NvU32 flags) {
-    return vaspaceReserveMempool((struct OBJVASPACE *)(((unsigned char *)pVAS) + __nvoc_rtti_FABRIC_VASPACE_OBJVASPACE.offset), pGpu, hClient, size, pageSizeLockMask, flags);
+// fabricvaspaceFreeV2: inline virtual inherited (vaspace) base (vaspace) body
+NV_STATUS __nvoc_up_thunk_OBJVASPACE_fabricvaspaceFreeV2(struct FABRIC_VASPACE *pVAS, NvU64 vAddr, NvU64 *pSize) {
+    return vaspaceFreeV2((struct OBJVASPACE *)(((unsigned char *) pVAS) + NV_OFFSETOF(FABRIC_VASPACE, __nvoc_base_OBJVASPACE)), vAddr, pSize);
 }
+
 
 const struct NVOC_EXPORT_INFO __nvoc_export_info_FABRIC_VASPACE = 
 {
@@ -213,89 +281,80 @@ __nvoc_ctor_FABRIC_VASPACE_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_FABRIC_VASPACE_1(FABRIC_VASPACE *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
+} // End __nvoc_init_funcTable_FABRIC_VASPACE_1
 
-    pThis->__fabricvaspaceConstruct___ = &fabricvaspaceConstruct__IMPL;
 
-    pThis->__fabricvaspaceAlloc__ = &fabricvaspaceAlloc_IMPL;
-
-    pThis->__fabricvaspaceFree__ = &fabricvaspaceFree_IMPL;
-
-    pThis->__fabricvaspaceMap__ = &fabricvaspaceMap_IMPL;
-
-    pThis->__fabricvaspaceUnmap__ = &fabricvaspaceUnmap_IMPL;
-
-    pThis->__fabricvaspaceApplyDefaultAlignment__ = &fabricvaspaceApplyDefaultAlignment_IMPL;
-
-    pThis->__fabricvaspaceGetVasInfo__ = &fabricvaspaceGetVasInfo_IMPL;
-
-    pThis->__fabricvaspacePinRootPageDir__ = &fabricvaspacePinRootPageDir_IMPL;
-
-    pThis->__fabricvaspaceUnpinRootPageDir__ = &fabricvaspaceUnpinRootPageDir_IMPL;
-
-    pThis->__fabricvaspaceInvalidateTlb__ = &fabricvaspaceInvalidateTlb_IMPL;
-
-    pThis->__nvoc_base_OBJVASPACE.__vaspaceConstruct___ = &__nvoc_thunk_FABRIC_VASPACE_vaspaceConstruct_;
-
-    pThis->__nvoc_base_OBJVASPACE.__vaspaceAlloc__ = &__nvoc_thunk_FABRIC_VASPACE_vaspaceAlloc;
-
-    pThis->__nvoc_base_OBJVASPACE.__vaspaceFree__ = &__nvoc_thunk_FABRIC_VASPACE_vaspaceFree;
-
-    pThis->__nvoc_base_OBJVASPACE.__vaspaceMap__ = &__nvoc_thunk_FABRIC_VASPACE_vaspaceMap;
-
-    pThis->__nvoc_base_OBJVASPACE.__vaspaceUnmap__ = &__nvoc_thunk_FABRIC_VASPACE_vaspaceUnmap;
-
-    pThis->__nvoc_base_OBJVASPACE.__vaspaceApplyDefaultAlignment__ = &__nvoc_thunk_FABRIC_VASPACE_vaspaceApplyDefaultAlignment;
-
-    pThis->__nvoc_base_OBJVASPACE.__vaspaceGetVasInfo__ = &__nvoc_thunk_FABRIC_VASPACE_vaspaceGetVasInfo;
-
-    pThis->__nvoc_base_OBJVASPACE.__vaspacePinRootPageDir__ = &__nvoc_thunk_FABRIC_VASPACE_vaspacePinRootPageDir;
-
-    pThis->__nvoc_base_OBJVASPACE.__vaspaceUnpinRootPageDir__ = &__nvoc_thunk_FABRIC_VASPACE_vaspaceUnpinRootPageDir;
-
-    pThis->__nvoc_base_OBJVASPACE.__vaspaceInvalidateTlb__ = &__nvoc_thunk_FABRIC_VASPACE_vaspaceInvalidateTlb;
-
-    pThis->__fabricvaspaceIsMirrored__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceIsMirrored;
-
-    pThis->__fabricvaspaceIsExternallyOwned__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceIsExternallyOwned;
-
-    pThis->__fabricvaspaceIsInternalVaRestricted__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceIsInternalVaRestricted;
-
-    pThis->__fabricvaspaceGetFlags__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceGetFlags;
-
-    pThis->__fabricvaspaceIsAtsEnabled__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceIsAtsEnabled;
-
-    pThis->__fabricvaspaceGetBigPageSize__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceGetBigPageSize;
-
-    pThis->__fabricvaspaceGetPteInfo__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceGetPteInfo;
-
-    pThis->__fabricvaspaceGetVaLimit__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceGetVaLimit;
-
-    pThis->__fabricvaspaceGetPageDirBase__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceGetPageDirBase;
-
-    pThis->__fabricvaspaceGetKernelPageDirBase__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceGetKernelPageDirBase;
-
-    pThis->__fabricvaspaceGetMapPageSize__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceGetMapPageSize;
-
-    pThis->__fabricvaspaceGetHeap__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceGetHeap;
-
-    pThis->__fabricvaspaceIsFaultCapable__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceIsFaultCapable;
-
-    pThis->__fabricvaspaceGetVaStart__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceGetVaStart;
-
-    pThis->__fabricvaspaceIncAllocRefCnt__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceIncAllocRefCnt;
-
-    pThis->__fabricvaspaceSetPteInfo__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceSetPteInfo;
-
-    pThis->__fabricvaspaceGetPasid__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceGetPasid;
-
-    pThis->__fabricvaspaceGetPageTableInfo__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceGetPageTableInfo;
-
-    pThis->__fabricvaspaceReserveMempool__ = &__nvoc_thunk_OBJVASPACE_fabricvaspaceReserveMempool;
-}
-
+// Initialize vtable(s) for 29 virtual method(s).
 void __nvoc_init_funcTable_FABRIC_VASPACE(FABRIC_VASPACE *pThis) {
+
+    // Per-class vtable definition
+    static const struct NVOC_VTABLE__FABRIC_VASPACE vtable = {
+        .__fabricvaspaceConstruct___ = &fabricvaspaceConstruct__IMPL,    // virtual override (vaspace) base (vaspace)
+        .OBJVASPACE.__vaspaceConstruct___ = &__nvoc_down_thunk_FABRIC_VASPACE_vaspaceConstruct_,    // pure virtual
+        .__fabricvaspaceAlloc__ = &fabricvaspaceAlloc_IMPL,    // virtual override (vaspace) base (vaspace)
+        .OBJVASPACE.__vaspaceAlloc__ = &__nvoc_down_thunk_FABRIC_VASPACE_vaspaceAlloc,    // pure virtual
+        .__fabricvaspaceFree__ = &fabricvaspaceFree_IMPL,    // virtual override (vaspace) base (vaspace)
+        .OBJVASPACE.__vaspaceFree__ = &__nvoc_down_thunk_FABRIC_VASPACE_vaspaceFree,    // pure virtual
+        .__fabricvaspaceMap__ = &fabricvaspaceMap_IMPL,    // virtual override (vaspace) base (vaspace)
+        .OBJVASPACE.__vaspaceMap__ = &__nvoc_down_thunk_FABRIC_VASPACE_vaspaceMap,    // inline virtual body
+        .__fabricvaspaceUnmap__ = &fabricvaspaceUnmap_IMPL,    // virtual override (vaspace) base (vaspace)
+        .OBJVASPACE.__vaspaceUnmap__ = &__nvoc_down_thunk_FABRIC_VASPACE_vaspaceUnmap,    // inline virtual body
+        .__fabricvaspaceApplyDefaultAlignment__ = &fabricvaspaceApplyDefaultAlignment_IMPL,    // virtual override (vaspace) base (vaspace)
+        .OBJVASPACE.__vaspaceApplyDefaultAlignment__ = &__nvoc_down_thunk_FABRIC_VASPACE_vaspaceApplyDefaultAlignment,    // pure virtual
+        .__fabricvaspaceGetVasInfo__ = &fabricvaspaceGetVasInfo_IMPL,    // virtual override (vaspace) base (vaspace)
+        .OBJVASPACE.__vaspaceGetVasInfo__ = &__nvoc_down_thunk_FABRIC_VASPACE_vaspaceGetVasInfo,    // pure virtual
+        .__fabricvaspacePinRootPageDir__ = &fabricvaspacePinRootPageDir_IMPL,    // virtual override (vaspace) base (vaspace)
+        .OBJVASPACE.__vaspacePinRootPageDir__ = &__nvoc_down_thunk_FABRIC_VASPACE_vaspacePinRootPageDir,    // inline virtual body
+        .__fabricvaspaceUnpinRootPageDir__ = &fabricvaspaceUnpinRootPageDir_IMPL,    // virtual override (vaspace) base (vaspace)
+        .OBJVASPACE.__vaspaceUnpinRootPageDir__ = &__nvoc_down_thunk_FABRIC_VASPACE_vaspaceUnpinRootPageDir,    // inline virtual body
+        .__fabricvaspaceInvalidateTlb__ = &fabricvaspaceInvalidateTlb_IMPL,    // virtual override (vaspace) base (vaspace)
+        .OBJVASPACE.__vaspaceInvalidateTlb__ = &__nvoc_down_thunk_FABRIC_VASPACE_vaspaceInvalidateTlb,    // virtual
+        .__fabricvaspaceIncAllocRefCnt__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceIncAllocRefCnt,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceIncAllocRefCnt__ = &vaspaceIncAllocRefCnt_14ee5e,    // inline virtual body
+        .__fabricvaspaceGetVaStart__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetVaStart,    // virtual inherited (vaspace) base (vaspace)
+        .OBJVASPACE.__vaspaceGetVaStart__ = &vaspaceGetVaStart_IMPL,    // virtual
+        .__fabricvaspaceGetVaLimit__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetVaLimit,    // virtual inherited (vaspace) base (vaspace)
+        .OBJVASPACE.__vaspaceGetVaLimit__ = &vaspaceGetVaLimit_IMPL,    // virtual
+        .__fabricvaspaceGetFlags__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetFlags,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceGetFlags__ = &vaspaceGetFlags_edd98b,    // inline virtual body
+        .__fabricvaspaceReserveMempool__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceReserveMempool,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceReserveMempool__ = &vaspaceReserveMempool_ac1694,    // inline virtual body
+        .__fabricvaspaceGetHeap__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetHeap,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceGetHeap__ = &vaspaceGetHeap_9451a7,    // inline virtual body
+        .__fabricvaspaceGetMapPageSize__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetMapPageSize,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceGetMapPageSize__ = &vaspaceGetMapPageSize_c26fae,    // inline virtual body
+        .__fabricvaspaceGetBigPageSize__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetBigPageSize,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceGetBigPageSize__ = &vaspaceGetBigPageSize_c26fae,    // inline virtual body
+        .__fabricvaspaceIsMirrored__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceIsMirrored,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceIsMirrored__ = &vaspaceIsMirrored_2fa1ff,    // inline virtual body
+        .__fabricvaspaceIsFaultCapable__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceIsFaultCapable,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceIsFaultCapable__ = &vaspaceIsFaultCapable_2fa1ff,    // inline virtual body
+        .__fabricvaspaceIsExternallyOwned__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceIsExternallyOwned,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceIsExternallyOwned__ = &vaspaceIsExternallyOwned_2fa1ff,    // inline virtual body
+        .__fabricvaspaceIsAtsEnabled__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceIsAtsEnabled,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceIsAtsEnabled__ = &vaspaceIsAtsEnabled_2fa1ff,    // inline virtual body
+        .__fabricvaspaceGetPasid__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetPasid,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceGetPasid__ = &vaspaceGetPasid_14ee5e,    // inline virtual body
+        .__fabricvaspaceGetPageDirBase__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetPageDirBase,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceGetPageDirBase__ = &vaspaceGetPageDirBase_9451a7,    // inline virtual body
+        .__fabricvaspaceGetKernelPageDirBase__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetKernelPageDirBase,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceGetKernelPageDirBase__ = &vaspaceGetKernelPageDirBase_9451a7,    // inline virtual body
+        .__fabricvaspaceGetPageTableInfo__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetPageTableInfo,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceGetPageTableInfo__ = &vaspaceGetPageTableInfo_14ee5e,    // inline virtual body
+        .__fabricvaspaceGetPteInfo__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceGetPteInfo,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceGetPteInfo__ = &vaspaceGetPteInfo_14ee5e,    // inline virtual body
+        .__fabricvaspaceSetPteInfo__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceSetPteInfo,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceSetPteInfo__ = &vaspaceSetPteInfo_14ee5e,    // inline virtual body
+        .__fabricvaspaceFreeV2__ = &__nvoc_up_thunk_OBJVASPACE_fabricvaspaceFreeV2,    // inline virtual inherited (vaspace) base (vaspace) body
+        .OBJVASPACE.__vaspaceFreeV2__ = &vaspaceFreeV2_14ee5e,    // inline virtual body
+    };
+
+    // Pointer(s) to per-class vtable(s)
+    pThis->__nvoc_base_OBJVASPACE.__nvoc_vtable = &vtable.OBJVASPACE;    // (vaspace) super
+    pThis->__nvoc_vtable = &vtable;    // (fabricvaspace) this
     __nvoc_init_funcTable_FABRIC_VASPACE_1(pThis);
 }
 
@@ -308,18 +367,26 @@ void __nvoc_init_FABRIC_VASPACE(FABRIC_VASPACE *pThis) {
     __nvoc_init_funcTable_FABRIC_VASPACE(pThis);
 }
 
-NV_STATUS __nvoc_objCreate_FABRIC_VASPACE(FABRIC_VASPACE **ppThis, Dynamic *pParent, NvU32 createFlags) {
+NV_STATUS __nvoc_objCreate_FABRIC_VASPACE(FABRIC_VASPACE **ppThis, Dynamic *pParent, NvU32 createFlags)
+{
     NV_STATUS status;
-    Object *pParentObj;
+    Object *pParentObj = NULL;
     FABRIC_VASPACE *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(FABRIC_VASPACE));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    // Assign `pThis`, allocating memory unless suppressed by flag.
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(FABRIC_VASPACE), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
+    // Zero is the initial value for everything.
     portMemSet(pThis, 0, sizeof(FABRIC_VASPACE));
 
+    // Initialize runtime type information.
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_FABRIC_VASPACE);
 
+    pThis->__nvoc_base_OBJVASPACE.__nvoc_base_Object.createFlags = createFlags;
+
+    // Link the child into the parent if there is one unless flagged not to do so.
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
         pParentObj = dynamicCast(pParent, Object);
@@ -334,12 +401,27 @@ NV_STATUS __nvoc_objCreate_FABRIC_VASPACE(FABRIC_VASPACE **ppThis, Dynamic *pPar
     status = __nvoc_ctor_FABRIC_VASPACE(pThis);
     if (status != NV_OK) goto __nvoc_objCreate_FABRIC_VASPACE_cleanup;
 
+    // Assignment has no effect if NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT is set.
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_FABRIC_VASPACE_cleanup:
-    // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+
+    // Unlink the child from the parent if it was linked above.
+    if (pParentObj != NULL)
+        objRemoveChild(pParentObj, &pThis->__nvoc_base_OBJVASPACE.__nvoc_base_Object);
+
+    // Do not call destructors here since the constructor already called them.
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(FABRIC_VASPACE));
+    else
+    {
+        portMemFree(pThis);
+        *ppThis = NULL;
+    }
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 

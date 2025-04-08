@@ -84,77 +84,156 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_P2PApi =
     /*pExportInfo=*/        &__nvoc_export_info_P2PApi
 };
 
-static NvBool __nvoc_thunk_RmResource_p2papiShareCallback(struct P2PApi *pResource, struct RsClient *pInvokingClient, struct RsResourceRef *pParentRef, RS_SHARE_POLICY *pSharePolicy) {
-    return rmresShareCallback((struct RmResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RmResource.offset), pInvokingClient, pParentRef, pSharePolicy);
+// Down-thunk(s) to bridge P2PApi methods from ancestors (if any)
+NvBool __nvoc_down_thunk_RmResource_resAccessCallback(struct RsResource *pResource, struct RsClient *pInvokingClient, void *pAllocParams, RsAccessRight accessRight);    // super
+NvBool __nvoc_down_thunk_RmResource_resShareCallback(struct RsResource *pResource, struct RsClient *pInvokingClient, struct RsResourceRef *pParentRef, RS_SHARE_POLICY *pSharePolicy);    // super
+NV_STATUS __nvoc_down_thunk_RmResource_resControlSerialization_Prologue(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // super
+void __nvoc_down_thunk_RmResource_resControlSerialization_Epilogue(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // super
+NV_STATUS __nvoc_down_thunk_RmResource_resControl_Prologue(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // super
+void __nvoc_down_thunk_RmResource_resControl_Epilogue(struct RsResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // super
+
+// Up-thunk(s) to bridge P2PApi methods to ancestors (if any)
+NvBool __nvoc_up_thunk_RsResource_rmresCanCopy(struct RmResource *pResource);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresIsDuplicate(struct RmResource *pResource, NvHandle hMemory, NvBool *pDuplicate);    // super
+void __nvoc_up_thunk_RsResource_rmresPreDestruct(struct RmResource *pResource);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresControl(struct RmResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresControlFilter(struct RmResource *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresMap(struct RmResource *pResource, struct CALL_CONTEXT *pCallContext, RS_CPU_MAP_PARAMS *pParams, RsCpuMapping *pCpuMapping);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresUnmap(struct RmResource *pResource, struct CALL_CONTEXT *pCallContext, RsCpuMapping *pCpuMapping);    // super
+NvBool __nvoc_up_thunk_RsResource_rmresIsPartialUnmapSupported(struct RmResource *pResource);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresMapTo(struct RmResource *pResource, RS_RES_MAP_TO_PARAMS *pParams);    // super
+NV_STATUS __nvoc_up_thunk_RsResource_rmresUnmapFrom(struct RmResource *pResource, RS_RES_UNMAP_FROM_PARAMS *pParams);    // super
+NvU32 __nvoc_up_thunk_RsResource_rmresGetRefCount(struct RmResource *pResource);    // super
+void __nvoc_up_thunk_RsResource_rmresAddAdditionalDependants(struct RsClient *pClient, struct RmResource *pResource, RsResourceRef *pReference);    // super
+NvBool __nvoc_up_thunk_RmResource_p2papiAccessCallback(struct P2PApi *pResource, struct RsClient *pInvokingClient, void *pAllocParams, RsAccessRight accessRight);    // this
+NvBool __nvoc_up_thunk_RmResource_p2papiShareCallback(struct P2PApi *pResource, struct RsClient *pInvokingClient, struct RsResourceRef *pParentRef, RS_SHARE_POLICY *pSharePolicy);    // this
+NV_STATUS __nvoc_up_thunk_RmResource_p2papiGetMemInterMapParams(struct P2PApi *pRmResource, RMRES_MEM_INTER_MAP_PARAMS *pParams);    // this
+NV_STATUS __nvoc_up_thunk_RmResource_p2papiCheckMemInterUnmap(struct P2PApi *pRmResource, NvBool bSubdeviceHandleProvided);    // this
+NV_STATUS __nvoc_up_thunk_RmResource_p2papiGetMemoryMappingDescriptor(struct P2PApi *pRmResource, struct MEMORY_DESCRIPTOR **ppMemDesc);    // this
+NV_STATUS __nvoc_up_thunk_RmResource_p2papiControlSerialization_Prologue(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // this
+void __nvoc_up_thunk_RmResource_p2papiControlSerialization_Epilogue(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // this
+NV_STATUS __nvoc_up_thunk_RmResource_p2papiControl_Prologue(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // this
+void __nvoc_up_thunk_RmResource_p2papiControl_Epilogue(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // this
+NvBool __nvoc_up_thunk_RsResource_p2papiCanCopy(struct P2PApi *pResource);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiIsDuplicate(struct P2PApi *pResource, NvHandle hMemory, NvBool *pDuplicate);    // this
+void __nvoc_up_thunk_RsResource_p2papiPreDestruct(struct P2PApi *pResource);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiControl(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiControlFilter(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiMap(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, RS_CPU_MAP_PARAMS *pParams, RsCpuMapping *pCpuMapping);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiUnmap(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, RsCpuMapping *pCpuMapping);    // this
+NvBool __nvoc_up_thunk_RsResource_p2papiIsPartialUnmapSupported(struct P2PApi *pResource);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiMapTo(struct P2PApi *pResource, RS_RES_MAP_TO_PARAMS *pParams);    // this
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiUnmapFrom(struct P2PApi *pResource, RS_RES_UNMAP_FROM_PARAMS *pParams);    // this
+NvU32 __nvoc_up_thunk_RsResource_p2papiGetRefCount(struct P2PApi *pResource);    // this
+void __nvoc_up_thunk_RsResource_p2papiAddAdditionalDependants(struct RsClient *pClient, struct P2PApi *pResource, RsResourceRef *pReference);    // this
+
+// 21 up-thunk(s) defined to bridge methods in P2PApi to superclasses
+
+// p2papiAccessCallback: virtual inherited (rmres) base (rmres)
+NvBool __nvoc_up_thunk_RmResource_p2papiAccessCallback(struct P2PApi *pResource, struct RsClient *pInvokingClient, void *pAllocParams, RsAccessRight accessRight) {
+    return rmresAccessCallback((struct RmResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource)), pInvokingClient, pAllocParams, accessRight);
 }
 
-static NV_STATUS __nvoc_thunk_RmResource_p2papiCheckMemInterUnmap(struct P2PApi *pRmResource, NvBool bSubdeviceHandleProvided) {
-    return rmresCheckMemInterUnmap((struct RmResource *)(((unsigned char *)pRmResource) + __nvoc_rtti_P2PApi_RmResource.offset), bSubdeviceHandleProvided);
+// p2papiShareCallback: virtual inherited (rmres) base (rmres)
+NvBool __nvoc_up_thunk_RmResource_p2papiShareCallback(struct P2PApi *pResource, struct RsClient *pInvokingClient, struct RsResourceRef *pParentRef, RS_SHARE_POLICY *pSharePolicy) {
+    return rmresShareCallback((struct RmResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource)), pInvokingClient, pParentRef, pSharePolicy);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_p2papiControl(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
-    return resControl((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RsResource.offset), pCallContext, pParams);
+// p2papiGetMemInterMapParams: virtual inherited (rmres) base (rmres)
+NV_STATUS __nvoc_up_thunk_RmResource_p2papiGetMemInterMapParams(struct P2PApi *pRmResource, RMRES_MEM_INTER_MAP_PARAMS *pParams) {
+    return rmresGetMemInterMapParams((struct RmResource *)(((unsigned char *) pRmResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource)), pParams);
 }
 
-static NV_STATUS __nvoc_thunk_RmResource_p2papiGetMemInterMapParams(struct P2PApi *pRmResource, RMRES_MEM_INTER_MAP_PARAMS *pParams) {
-    return rmresGetMemInterMapParams((struct RmResource *)(((unsigned char *)pRmResource) + __nvoc_rtti_P2PApi_RmResource.offset), pParams);
+// p2papiCheckMemInterUnmap: virtual inherited (rmres) base (rmres)
+NV_STATUS __nvoc_up_thunk_RmResource_p2papiCheckMemInterUnmap(struct P2PApi *pRmResource, NvBool bSubdeviceHandleProvided) {
+    return rmresCheckMemInterUnmap((struct RmResource *)(((unsigned char *) pRmResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource)), bSubdeviceHandleProvided);
 }
 
-static NV_STATUS __nvoc_thunk_RmResource_p2papiGetMemoryMappingDescriptor(struct P2PApi *pRmResource, struct MEMORY_DESCRIPTOR **ppMemDesc) {
-    return rmresGetMemoryMappingDescriptor((struct RmResource *)(((unsigned char *)pRmResource) + __nvoc_rtti_P2PApi_RmResource.offset), ppMemDesc);
+// p2papiGetMemoryMappingDescriptor: virtual inherited (rmres) base (rmres)
+NV_STATUS __nvoc_up_thunk_RmResource_p2papiGetMemoryMappingDescriptor(struct P2PApi *pRmResource, struct MEMORY_DESCRIPTOR **ppMemDesc) {
+    return rmresGetMemoryMappingDescriptor((struct RmResource *)(((unsigned char *) pRmResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource)), ppMemDesc);
 }
 
-static NvU32 __nvoc_thunk_RsResource_p2papiGetRefCount(struct P2PApi *pResource) {
-    return resGetRefCount((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RsResource.offset));
+// p2papiControlSerialization_Prologue: virtual inherited (rmres) base (rmres)
+NV_STATUS __nvoc_up_thunk_RmResource_p2papiControlSerialization_Prologue(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return rmresControlSerialization_Prologue((struct RmResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource)), pCallContext, pParams);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_p2papiControlFilter(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
-    return resControlFilter((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RsResource.offset), pCallContext, pParams);
+// p2papiControlSerialization_Epilogue: virtual inherited (rmres) base (rmres)
+void __nvoc_up_thunk_RmResource_p2papiControlSerialization_Epilogue(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    rmresControlSerialization_Epilogue((struct RmResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource)), pCallContext, pParams);
 }
 
-static void __nvoc_thunk_RsResource_p2papiAddAdditionalDependants(struct RsClient *pClient, struct P2PApi *pResource, RsResourceRef *pReference) {
-    resAddAdditionalDependants(pClient, (struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RsResource.offset), pReference);
+// p2papiControl_Prologue: virtual inherited (rmres) base (rmres)
+NV_STATUS __nvoc_up_thunk_RmResource_p2papiControl_Prologue(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return rmresControl_Prologue((struct RmResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource)), pCallContext, pParams);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_p2papiUnmap(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, RsCpuMapping *pCpuMapping) {
-    return resUnmap((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RsResource.offset), pCallContext, pCpuMapping);
+// p2papiControl_Epilogue: virtual inherited (rmres) base (rmres)
+void __nvoc_up_thunk_RmResource_p2papiControl_Epilogue(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    rmresControl_Epilogue((struct RmResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource)), pCallContext, pParams);
 }
 
-static NV_STATUS __nvoc_thunk_RmResource_p2papiControl_Prologue(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
-    return rmresControl_Prologue((struct RmResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RmResource.offset), pCallContext, pParams);
+// p2papiCanCopy: virtual inherited (res) base (rmres)
+NvBool __nvoc_up_thunk_RsResource_p2papiCanCopy(struct P2PApi *pResource) {
+    return resCanCopy((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource.__nvoc_base_RsResource)));
 }
 
-static NvBool __nvoc_thunk_RsResource_p2papiCanCopy(struct P2PApi *pResource) {
-    return resCanCopy((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RsResource.offset));
+// p2papiIsDuplicate: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiIsDuplicate(struct P2PApi *pResource, NvHandle hMemory, NvBool *pDuplicate) {
+    return resIsDuplicate((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource.__nvoc_base_RsResource)), hMemory, pDuplicate);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_p2papiMapTo(struct P2PApi *pResource, RS_RES_MAP_TO_PARAMS *pParams) {
-    return resMapTo((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RsResource.offset), pParams);
+// p2papiPreDestruct: virtual inherited (res) base (rmres)
+void __nvoc_up_thunk_RsResource_p2papiPreDestruct(struct P2PApi *pResource) {
+    resPreDestruct((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource.__nvoc_base_RsResource)));
 }
 
-static void __nvoc_thunk_RsResource_p2papiPreDestruct(struct P2PApi *pResource) {
-    resPreDestruct((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RsResource.offset));
+// p2papiControl: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiControl(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return resControl((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource.__nvoc_base_RsResource)), pCallContext, pParams);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_p2papiUnmapFrom(struct P2PApi *pResource, RS_RES_UNMAP_FROM_PARAMS *pParams) {
-    return resUnmapFrom((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RsResource.offset), pParams);
+// p2papiControlFilter: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiControlFilter(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
+    return resControlFilter((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource.__nvoc_base_RsResource)), pCallContext, pParams);
 }
 
-static void __nvoc_thunk_RmResource_p2papiControl_Epilogue(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams) {
-    rmresControl_Epilogue((struct RmResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RmResource.offset), pCallContext, pParams);
+// p2papiMap: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiMap(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, RS_CPU_MAP_PARAMS *pParams, RsCpuMapping *pCpuMapping) {
+    return resMap((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource.__nvoc_base_RsResource)), pCallContext, pParams, pCpuMapping);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_p2papiControlLookup(struct P2PApi *pResource, struct RS_RES_CONTROL_PARAMS_INTERNAL *pParams, const struct NVOC_EXPORTED_METHOD_DEF **ppEntry) {
-    return resControlLookup((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RsResource.offset), pParams, ppEntry);
+// p2papiUnmap: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiUnmap(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, RsCpuMapping *pCpuMapping) {
+    return resUnmap((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource.__nvoc_base_RsResource)), pCallContext, pCpuMapping);
 }
 
-static NV_STATUS __nvoc_thunk_RsResource_p2papiMap(struct P2PApi *pResource, struct CALL_CONTEXT *pCallContext, RS_CPU_MAP_PARAMS *pParams, RsCpuMapping *pCpuMapping) {
-    return resMap((struct RsResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RsResource.offset), pCallContext, pParams, pCpuMapping);
+// p2papiIsPartialUnmapSupported: inline virtual inherited (res) base (rmres) body
+NvBool __nvoc_up_thunk_RsResource_p2papiIsPartialUnmapSupported(struct P2PApi *pResource) {
+    return resIsPartialUnmapSupported((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource.__nvoc_base_RsResource)));
 }
 
-static NvBool __nvoc_thunk_RmResource_p2papiAccessCallback(struct P2PApi *pResource, struct RsClient *pInvokingClient, void *pAllocParams, RsAccessRight accessRight) {
-    return rmresAccessCallback((struct RmResource *)(((unsigned char *)pResource) + __nvoc_rtti_P2PApi_RmResource.offset), pInvokingClient, pAllocParams, accessRight);
+// p2papiMapTo: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiMapTo(struct P2PApi *pResource, RS_RES_MAP_TO_PARAMS *pParams) {
+    return resMapTo((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource.__nvoc_base_RsResource)), pParams);
 }
+
+// p2papiUnmapFrom: virtual inherited (res) base (rmres)
+NV_STATUS __nvoc_up_thunk_RsResource_p2papiUnmapFrom(struct P2PApi *pResource, RS_RES_UNMAP_FROM_PARAMS *pParams) {
+    return resUnmapFrom((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource.__nvoc_base_RsResource)), pParams);
+}
+
+// p2papiGetRefCount: virtual inherited (res) base (rmres)
+NvU32 __nvoc_up_thunk_RsResource_p2papiGetRefCount(struct P2PApi *pResource) {
+    return resGetRefCount((struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource.__nvoc_base_RsResource)));
+}
+
+// p2papiAddAdditionalDependants: virtual inherited (res) base (rmres)
+void __nvoc_up_thunk_RsResource_p2papiAddAdditionalDependants(struct RsClient *pClient, struct P2PApi *pResource, RsResourceRef *pReference) {
+    resAddAdditionalDependants(pClient, (struct RsResource *)(((unsigned char *) pResource) + NV_OFFSETOF(P2PApi, __nvoc_base_RmResource.__nvoc_base_RsResource)), pReference);
+}
+
 
 const struct NVOC_EXPORT_INFO __nvoc_export_info_P2PApi = 
 {
@@ -192,47 +271,83 @@ __nvoc_ctor_P2PApi_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_P2PApi_1(P2PApi *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
+} // End __nvoc_init_funcTable_P2PApi_1
 
-    pThis->__p2papiShareCallback__ = &__nvoc_thunk_RmResource_p2papiShareCallback;
 
-    pThis->__p2papiCheckMemInterUnmap__ = &__nvoc_thunk_RmResource_p2papiCheckMemInterUnmap;
-
-    pThis->__p2papiControl__ = &__nvoc_thunk_RsResource_p2papiControl;
-
-    pThis->__p2papiGetMemInterMapParams__ = &__nvoc_thunk_RmResource_p2papiGetMemInterMapParams;
-
-    pThis->__p2papiGetMemoryMappingDescriptor__ = &__nvoc_thunk_RmResource_p2papiGetMemoryMappingDescriptor;
-
-    pThis->__p2papiGetRefCount__ = &__nvoc_thunk_RsResource_p2papiGetRefCount;
-
-    pThis->__p2papiControlFilter__ = &__nvoc_thunk_RsResource_p2papiControlFilter;
-
-    pThis->__p2papiAddAdditionalDependants__ = &__nvoc_thunk_RsResource_p2papiAddAdditionalDependants;
-
-    pThis->__p2papiUnmap__ = &__nvoc_thunk_RsResource_p2papiUnmap;
-
-    pThis->__p2papiControl_Prologue__ = &__nvoc_thunk_RmResource_p2papiControl_Prologue;
-
-    pThis->__p2papiCanCopy__ = &__nvoc_thunk_RsResource_p2papiCanCopy;
-
-    pThis->__p2papiMapTo__ = &__nvoc_thunk_RsResource_p2papiMapTo;
-
-    pThis->__p2papiPreDestruct__ = &__nvoc_thunk_RsResource_p2papiPreDestruct;
-
-    pThis->__p2papiUnmapFrom__ = &__nvoc_thunk_RsResource_p2papiUnmapFrom;
-
-    pThis->__p2papiControl_Epilogue__ = &__nvoc_thunk_RmResource_p2papiControl_Epilogue;
-
-    pThis->__p2papiControlLookup__ = &__nvoc_thunk_RsResource_p2papiControlLookup;
-
-    pThis->__p2papiMap__ = &__nvoc_thunk_RsResource_p2papiMap;
-
-    pThis->__p2papiAccessCallback__ = &__nvoc_thunk_RmResource_p2papiAccessCallback;
-}
-
+// Initialize vtable(s) for 21 virtual method(s).
 void __nvoc_init_funcTable_P2PApi(P2PApi *pThis) {
+
+    // Per-class vtable definition
+    static const struct NVOC_VTABLE__P2PApi vtable = {
+        .__p2papiAccessCallback__ = &__nvoc_up_thunk_RmResource_p2papiAccessCallback,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresAccessCallback__ = &rmresAccessCallback_IMPL,    // virtual override (res) base (res)
+        .RmResource.RsResource.__resAccessCallback__ = &__nvoc_down_thunk_RmResource_resAccessCallback,    // virtual
+        .__p2papiShareCallback__ = &__nvoc_up_thunk_RmResource_p2papiShareCallback,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresShareCallback__ = &rmresShareCallback_IMPL,    // virtual override (res) base (res)
+        .RmResource.RsResource.__resShareCallback__ = &__nvoc_down_thunk_RmResource_resShareCallback,    // virtual
+        .__p2papiGetMemInterMapParams__ = &__nvoc_up_thunk_RmResource_p2papiGetMemInterMapParams,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresGetMemInterMapParams__ = &rmresGetMemInterMapParams_IMPL,    // virtual
+        .__p2papiCheckMemInterUnmap__ = &__nvoc_up_thunk_RmResource_p2papiCheckMemInterUnmap,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresCheckMemInterUnmap__ = &rmresCheckMemInterUnmap_IMPL,    // virtual
+        .__p2papiGetMemoryMappingDescriptor__ = &__nvoc_up_thunk_RmResource_p2papiGetMemoryMappingDescriptor,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresGetMemoryMappingDescriptor__ = &rmresGetMemoryMappingDescriptor_IMPL,    // virtual
+        .__p2papiControlSerialization_Prologue__ = &__nvoc_up_thunk_RmResource_p2papiControlSerialization_Prologue,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresControlSerialization_Prologue__ = &rmresControlSerialization_Prologue_IMPL,    // virtual override (res) base (res)
+        .RmResource.RsResource.__resControlSerialization_Prologue__ = &__nvoc_down_thunk_RmResource_resControlSerialization_Prologue,    // virtual
+        .__p2papiControlSerialization_Epilogue__ = &__nvoc_up_thunk_RmResource_p2papiControlSerialization_Epilogue,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresControlSerialization_Epilogue__ = &rmresControlSerialization_Epilogue_IMPL,    // virtual override (res) base (res)
+        .RmResource.RsResource.__resControlSerialization_Epilogue__ = &__nvoc_down_thunk_RmResource_resControlSerialization_Epilogue,    // virtual
+        .__p2papiControl_Prologue__ = &__nvoc_up_thunk_RmResource_p2papiControl_Prologue,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresControl_Prologue__ = &rmresControl_Prologue_IMPL,    // virtual override (res) base (res)
+        .RmResource.RsResource.__resControl_Prologue__ = &__nvoc_down_thunk_RmResource_resControl_Prologue,    // virtual
+        .__p2papiControl_Epilogue__ = &__nvoc_up_thunk_RmResource_p2papiControl_Epilogue,    // virtual inherited (rmres) base (rmres)
+        .RmResource.__rmresControl_Epilogue__ = &rmresControl_Epilogue_IMPL,    // virtual override (res) base (res)
+        .RmResource.RsResource.__resControl_Epilogue__ = &__nvoc_down_thunk_RmResource_resControl_Epilogue,    // virtual
+        .__p2papiCanCopy__ = &__nvoc_up_thunk_RsResource_p2papiCanCopy,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresCanCopy__ = &__nvoc_up_thunk_RsResource_rmresCanCopy,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resCanCopy__ = &resCanCopy_IMPL,    // virtual
+        .__p2papiIsDuplicate__ = &__nvoc_up_thunk_RsResource_p2papiIsDuplicate,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresIsDuplicate__ = &__nvoc_up_thunk_RsResource_rmresIsDuplicate,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resIsDuplicate__ = &resIsDuplicate_IMPL,    // virtual
+        .__p2papiPreDestruct__ = &__nvoc_up_thunk_RsResource_p2papiPreDestruct,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresPreDestruct__ = &__nvoc_up_thunk_RsResource_rmresPreDestruct,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resPreDestruct__ = &resPreDestruct_IMPL,    // virtual
+        .__p2papiControl__ = &__nvoc_up_thunk_RsResource_p2papiControl,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresControl__ = &__nvoc_up_thunk_RsResource_rmresControl,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resControl__ = &resControl_IMPL,    // virtual
+        .__p2papiControlFilter__ = &__nvoc_up_thunk_RsResource_p2papiControlFilter,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresControlFilter__ = &__nvoc_up_thunk_RsResource_rmresControlFilter,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resControlFilter__ = &resControlFilter_IMPL,    // virtual
+        .__p2papiMap__ = &__nvoc_up_thunk_RsResource_p2papiMap,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresMap__ = &__nvoc_up_thunk_RsResource_rmresMap,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resMap__ = &resMap_IMPL,    // virtual
+        .__p2papiUnmap__ = &__nvoc_up_thunk_RsResource_p2papiUnmap,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresUnmap__ = &__nvoc_up_thunk_RsResource_rmresUnmap,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resUnmap__ = &resUnmap_IMPL,    // virtual
+        .__p2papiIsPartialUnmapSupported__ = &__nvoc_up_thunk_RsResource_p2papiIsPartialUnmapSupported,    // inline virtual inherited (res) base (rmres) body
+        .RmResource.__rmresIsPartialUnmapSupported__ = &__nvoc_up_thunk_RsResource_rmresIsPartialUnmapSupported,    // inline virtual inherited (res) base (res) body
+        .RmResource.RsResource.__resIsPartialUnmapSupported__ = &resIsPartialUnmapSupported_d69453,    // inline virtual body
+        .__p2papiMapTo__ = &__nvoc_up_thunk_RsResource_p2papiMapTo,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresMapTo__ = &__nvoc_up_thunk_RsResource_rmresMapTo,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resMapTo__ = &resMapTo_IMPL,    // virtual
+        .__p2papiUnmapFrom__ = &__nvoc_up_thunk_RsResource_p2papiUnmapFrom,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresUnmapFrom__ = &__nvoc_up_thunk_RsResource_rmresUnmapFrom,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resUnmapFrom__ = &resUnmapFrom_IMPL,    // virtual
+        .__p2papiGetRefCount__ = &__nvoc_up_thunk_RsResource_p2papiGetRefCount,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresGetRefCount__ = &__nvoc_up_thunk_RsResource_rmresGetRefCount,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resGetRefCount__ = &resGetRefCount_IMPL,    // virtual
+        .__p2papiAddAdditionalDependants__ = &__nvoc_up_thunk_RsResource_p2papiAddAdditionalDependants,    // virtual inherited (res) base (rmres)
+        .RmResource.__rmresAddAdditionalDependants__ = &__nvoc_up_thunk_RsResource_rmresAddAdditionalDependants,    // virtual inherited (res) base (res)
+        .RmResource.RsResource.__resAddAdditionalDependants__ = &resAddAdditionalDependants_IMPL,    // virtual
+    };
+
+    // Pointer(s) to per-class vtable(s)
+    pThis->__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_vtable = &vtable.RmResource.RsResource;    // (res) super^2
+    pThis->__nvoc_base_RmResource.__nvoc_vtable = &vtable.RmResource;    // (rmres) super
+    pThis->__nvoc_vtable = &vtable;    // (p2papi) this
     __nvoc_init_funcTable_P2PApi_1(pThis);
 }
 
@@ -247,18 +362,26 @@ void __nvoc_init_P2PApi(P2PApi *pThis) {
     __nvoc_init_funcTable_P2PApi(pThis);
 }
 
-NV_STATUS __nvoc_objCreate_P2PApi(P2PApi **ppThis, Dynamic *pParent, NvU32 createFlags, struct CALL_CONTEXT * arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL * arg_pParams) {
+NV_STATUS __nvoc_objCreate_P2PApi(P2PApi **ppThis, Dynamic *pParent, NvU32 createFlags, struct CALL_CONTEXT * arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL * arg_pParams)
+{
     NV_STATUS status;
-    Object *pParentObj;
+    Object *pParentObj = NULL;
     P2PApi *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(P2PApi));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    // Assign `pThis`, allocating memory unless suppressed by flag.
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(P2PApi), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
+    // Zero is the initial value for everything.
     portMemSet(pThis, 0, sizeof(P2PApi));
 
+    // Initialize runtime type information.
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_P2PApi);
 
+    pThis->__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_base_Object.createFlags = createFlags;
+
+    // Link the child into the parent if there is one unless flagged not to do so.
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
         pParentObj = dynamicCast(pParent, Object);
@@ -273,12 +396,27 @@ NV_STATUS __nvoc_objCreate_P2PApi(P2PApi **ppThis, Dynamic *pParent, NvU32 creat
     status = __nvoc_ctor_P2PApi(pThis, arg_pCallContext, arg_pParams);
     if (status != NV_OK) goto __nvoc_objCreate_P2PApi_cleanup;
 
+    // Assignment has no effect if NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT is set.
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_P2PApi_cleanup:
-    // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+
+    // Unlink the child from the parent if it was linked above.
+    if (pParentObj != NULL)
+        objRemoveChild(pParentObj, &pThis->__nvoc_base_RmResource.__nvoc_base_RsResource.__nvoc_base_Object);
+
+    // Do not call destructors here since the constructor already called them.
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(P2PApi));
+    else
+    {
+        portMemFree(pThis);
+        *ppThis = NULL;
+    }
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 

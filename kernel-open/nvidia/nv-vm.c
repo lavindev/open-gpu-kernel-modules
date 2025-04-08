@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2020 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -222,7 +222,7 @@ static NvU64 nv_get_max_sysmem_address(void)
 
     for_each_online_node(node_id)
     {
-        global_max_pfn = max(global_max_pfn, node_end_pfn(node_id));
+        global_max_pfn = max(global_max_pfn, (NvU64)node_end_pfn(node_id));
     }
 
     return ((global_max_pfn + 1) << PAGE_SHIFT) - 1;
@@ -265,7 +265,7 @@ static unsigned int nv_compute_gfp_mask(
         gfp_mask |= __GFP_ZERO;
 #endif
 #if defined(__GFP_THISNODE)
-    if (at->flags.node0)
+    if (at->flags.node)
         gfp_mask |= __GFP_THISNODE;
 #endif
     // Compound pages are required by vm_insert_page for high-order page
@@ -295,8 +295,18 @@ static NV_STATUS nv_alloc_coherent_pages(
     unsigned int gfp_mask;
     unsigned long virt_addr = 0;
     dma_addr_t bus_addr;
-    nv_linux_state_t *nvl = NV_GET_NVL_FROM_NV_STATE(nv);
-    struct device *dev = nvl->dev;
+    nv_linux_state_t *nvl;
+    struct device *dev;
+
+    if (!nv)
+    {
+        nv_printf(NV_DBG_MEMINFO,
+            "NVRM: VM: %s: coherent page alloc on nvidiactl not supported\n", __FUNCTION__);
+        return NV_ERR_NOT_SUPPORTED;
+    }
+
+    nvl = NV_GET_NVL_FROM_NV_STATE(nv);
+    dev = nvl->dev;
 
     gfp_mask = nv_compute_gfp_mask(nv, at);
 
@@ -371,19 +381,17 @@ NV_STATUS nv_alloc_contig_pages(
     if (os_is_xen_dom0() || at->flags.unencrypted)
         return nv_alloc_coherent_pages(nv, at);
 
-
-
-
-
-
-
-
     at->order = get_order(at->num_pages * PAGE_SIZE);
     gfp_mask = nv_compute_gfp_mask(nv, at);
 
-    if (at->flags.node0)
+    if (at->flags.node)
     {
-        NV_ALLOC_PAGES_NODE(virt_addr, 0, at->order, gfp_mask);
+        unsigned long ptr = 0ULL;
+        NV_ALLOC_PAGES_NODE(ptr, at->node_id, at->order, gfp_mask);
+        if (ptr != 0)
+        {
+            virt_addr = (unsigned long) page_address((void *)ptr);
+        }
     }
     else
     {
@@ -511,28 +519,44 @@ NV_STATUS nv_alloc_system_pages(
     struct device *dev = at->dev;
     dma_addr_t bus_addr;
 
+    unsigned int alloc_page_size = PAGE_SIZE << at->order;
+    unsigned int alloc_num_pages = NV_CEIL(at->num_pages * PAGE_SIZE, alloc_page_size);
+
+    unsigned int sub_page_idx;
+    unsigned int sub_page_offset;
+    unsigned int os_pages_in_page = alloc_page_size / PAGE_SIZE;
+
     nv_printf(NV_DBG_MEMINFO,
-            "NVRM: VM: %u: %u pages\n", __FUNCTION__, at->num_pages);
+            "NVRM: VM: %s: %u order0 pages, %u order\n", __FUNCTION__, at->num_pages, at->order);
 
     gfp_mask = nv_compute_gfp_mask(nv, at);
 
-    for (i = 0; i < at->num_pages; i++)
+    for (i = 0; i < alloc_num_pages; i++)
     {
         if (at->flags.unencrypted && (dev != NULL))
         {
             virt_addr = (unsigned long)dma_alloc_coherent(dev,
-                                                          PAGE_SIZE,
+                                                          alloc_page_size,
                                                           &bus_addr,
                                                           gfp_mask);
             at->flags.coherent = NV_TRUE;
         }
-        else if (at->flags.node0)
+        else if (at->flags.node)
         {
-            NV_ALLOC_PAGES_NODE(virt_addr, 0, 0, gfp_mask);
+            unsigned long ptr = 0ULL;
+            NV_ALLOC_PAGES_NODE(ptr, at->node_id, at->order, gfp_mask);
+            if (ptr != 0)
+            {
+                virt_addr = (unsigned long) page_address((void *)ptr);
+            }
+            else
+            {
+                virt_addr = 0;
+            }
         }
         else
         {
-            NV_GET_FREE_PAGES(virt_addr, 0, gfp_mask);
+            NV_GET_FREE_PAGES(virt_addr, at->order, gfp_mask);
         }
 
         if (virt_addr == 0)
@@ -544,49 +568,55 @@ NV_STATUS nv_alloc_system_pages(
         }
 #if !defined(__GFP_ZERO)
         if (at->flags.zeroed)
-            memset((void *)virt_addr, 0, PAGE_SIZE);
+            memset((void *)virt_addr, 0, alloc_page_size);
 #endif
 
-        phys_addr = nv_get_kern_phys_address(virt_addr);
-        if (phys_addr == 0)
+        sub_page_offset = 0;
+        for (sub_page_idx = 0; sub_page_idx < os_pages_in_page; sub_page_idx++)
         {
-            nv_printf(NV_DBG_ERRORS,
-                "NVRM: VM: %s: failed to look up physical address\n",
-                __FUNCTION__);
-            NV_FREE_PAGES(virt_addr, 0);
-            status = NV_ERR_OPERATING_SYSTEM;
-            goto failed;
-        }
+            unsigned long sub_page_virt_addr = virt_addr + sub_page_offset;
+            phys_addr = nv_get_kern_phys_address(sub_page_virt_addr);
+            if (phys_addr == 0)
+            {
+                nv_printf(NV_DBG_ERRORS,
+                    "NVRM: VM: %s: failed to look up physical address\n",
+                    __FUNCTION__);
+                NV_FREE_PAGES(sub_page_virt_addr, at->order);
+                status = NV_ERR_OPERATING_SYSTEM;
+                goto failed;
+            }
 
 #if defined(_PAGE_NX)
-        if (((_PAGE_NX & pgprot_val(PAGE_KERNEL)) != 0) &&
-                (phys_addr < 0x400000))
-        {
-            nv_printf(NV_DBG_SETUP,
-                "NVRM: VM: %s: discarding page @ 0x%llx\n",
-                __FUNCTION__, phys_addr);
-            --i;
-            continue;
-        }
+            if (((_PAGE_NX & pgprot_val(PAGE_KERNEL)) != 0) &&
+                    (phys_addr < 0x400000))
+            {
+                nv_printf(NV_DBG_SETUP,
+                    "NVRM: VM: %s: discarding page @ 0x%llx\n",
+                    __FUNCTION__, phys_addr);
+                --i;
+                continue;
+            }
 #endif
 
-        page_ptr = at->page_table[i];
-        page_ptr->phys_addr = phys_addr;
-        page_ptr->page_count = NV_GET_PAGE_COUNT(page_ptr);
-        page_ptr->virt_addr = virt_addr;
+            page_ptr = at->page_table[(i * os_pages_in_page) + sub_page_idx];
+            page_ptr->phys_addr = phys_addr;
+            page_ptr->page_count = NV_GET_PAGE_COUNT(page_ptr);
+            page_ptr->virt_addr = sub_page_virt_addr;
 
-        //
-        // Use unencrypted dma_addr returned by dma_alloc_coherent() as
-        // nv_phys_to_dma() returns encrypted dma_addr when AMD SEV is enabled.
-        //
-        if (at->flags.coherent)
-            page_ptr->dma_addr = bus_addr;
-        else if (dev)
-            page_ptr->dma_addr = nv_phys_to_dma(dev, page_ptr->phys_addr);
-        else
-            page_ptr->dma_addr = page_ptr->phys_addr;
+            //
+            // Use unencrypted dma_addr returned by dma_alloc_coherent() as
+            // nv_phys_to_dma() returns encrypted dma_addr when AMD SEV is enabled.
+            //
+            if (at->flags.coherent)
+                page_ptr->dma_addr = bus_addr;
+            else if (dev != NULL)
+                page_ptr->dma_addr = nv_phys_to_dma(dev, page_ptr->phys_addr);
+            else
+                page_ptr->dma_addr = page_ptr->phys_addr;
 
-        NV_MAYBE_RESERVE_PAGE(page_ptr);
+            NV_MAYBE_RESERVE_PAGE(page_ptr);
+            sub_page_offset += PAGE_SIZE;
+        }
     }
 
     if (at->cache_type != NV_MEMORY_CACHED)
@@ -599,16 +629,16 @@ failed:
     {
         for (j = 0; j < i; j++)
         {
-            page_ptr = at->page_table[j];
+            page_ptr = at->page_table[j * os_pages_in_page];
             NV_MAYBE_UNRESERVE_PAGE(page_ptr);
             if (at->flags.coherent)
             {
-                dma_free_coherent(dev, PAGE_SIZE, (void *)page_ptr->virt_addr,
+                dma_free_coherent(dev, alloc_page_size, (void *)page_ptr->virt_addr,
                                   page_ptr->dma_addr);
             }
             else
             {
-                NV_FREE_PAGES(page_ptr->virt_addr, 0);
+                NV_FREE_PAGES(page_ptr->virt_addr, at->order);
             }
         }
     }
@@ -623,6 +653,9 @@ void nv_free_system_pages(
     nvidia_pte_t *page_ptr;
     unsigned int i;
     struct device *dev = at->dev;
+
+    unsigned int alloc_page_size = PAGE_SIZE << at->order;
+    unsigned int os_pages_in_page = alloc_page_size / PAGE_SIZE;
 
     nv_printf(NV_DBG_MEMINFO,
             "NVRM: VM: %s: %u pages\n", __FUNCTION__, at->num_pages);
@@ -647,14 +680,20 @@ void nv_free_system_pages(
         }
 
         NV_MAYBE_UNRESERVE_PAGE(page_ptr);
+    }
+
+    for (i = 0; i < at->num_pages; i += os_pages_in_page)
+    {
+        page_ptr = at->page_table[i];
+
         if (at->flags.coherent)
         {
-            dma_free_coherent(dev, PAGE_SIZE, (void *)page_ptr->virt_addr,
+            dma_free_coherent(dev, alloc_page_size, (void *)page_ptr->virt_addr,
                               page_ptr->dma_addr);
         }
         else
         {
-            NV_FREE_PAGES(page_ptr->virt_addr, 0);
+            NV_FREE_PAGES(page_ptr->virt_addr, at->order);
         }
     }
 }
@@ -698,29 +737,3 @@ void nv_vm_unmap_pages(
     nv_vunmap(virt_addr, count);
 }
 
-void nv_address_space_init_once(struct address_space *mapping)
-{
-#if defined(NV_ADDRESS_SPACE_INIT_ONCE_PRESENT)
-    address_space_init_once(mapping);
-#else
-    memset(mapping, 0, sizeof(*mapping));
-    INIT_RADIX_TREE(&mapping->page_tree, GFP_ATOMIC);
-
-#if defined(NV_ADDRESS_SPACE_HAS_RWLOCK_TREE_LOCK)
-    //
-    // The .tree_lock member variable was changed from type rwlock_t, to
-    // spinlock_t, on 25 July 2008, by mainline commit
-    // 19fd6231279be3c3bdd02ed99f9b0eb195978064.
-    //
-    rwlock_init(&mapping->tree_lock);
-#else
-    spin_lock_init(&mapping->tree_lock);
-#endif
-
-    spin_lock_init(&mapping->i_mmap_lock);
-    INIT_LIST_HEAD(&mapping->private_list);
-    spin_lock_init(&mapping->private_lock);
-    INIT_RAW_PRIO_TREE_ROOT(&mapping->i_mmap);
-    INIT_LIST_HEAD(&mapping->i_mmap_nonlinear);
-#endif /* !NV_ADDRESS_SPACE_INIT_ONCE_PRESENT */
-}

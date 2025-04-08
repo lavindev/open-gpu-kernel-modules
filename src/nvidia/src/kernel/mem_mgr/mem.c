@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -25,6 +25,7 @@
 
 #include "mem_mgr/fla_mem.h"
 
+#include "gpu_mgr/gpu_mgr.h"
 #include "gpu/gpu.h"
 #include "gpu/mem_mgr/mem_mgr.h"
 #include "gpu/disp/disp_objs.h"
@@ -34,6 +35,8 @@
 #include "gpu/device/device.h"
 #include "gpu/subdevice/subdevice.h"
 #include "vgpu/rpc.h"
+#include "platform/sli/sli.h"
+#include "deprecated/rmapi_deprecated.h"
 
 #include "class/cl0041.h" // NV04_MEMORY
 #include "class/cl003e.h" // NV01_MEMORY_SYSTEM
@@ -69,7 +72,7 @@ memConstruct_IMPL
         pMemory->pDevice = dynamicCast(pGrandParentRef->pResource, Device);
 
         if (pMemory->pDevice == NULL)
-                return NV_ERR_INVALID_OBJECT_HANDLE;
+            return NV_ERR_INVALID_OBJECT_HANDLE;
     }
 
     // If child of device, we have a pGpu
@@ -77,6 +80,8 @@ memConstruct_IMPL
     {
         // NOTE: pGpu and pDevice be NULL for NoDeviceMemory
         pMemory->pGpu = CliGetGpuFromContext(pResourceRef, &pMemory->bBcResource);
+
+        NV_ASSERT_OR_RETURN(pMemory->pGpu != NULL, NV_ERR_INVALID_ARGUMENT);
 
         // Set thread BC state
         gpuSetThreadBcState(pMemory->pGpu, pMemory->bBcResource);
@@ -254,7 +259,7 @@ memCreateKernelMapping_IMPL
 {
     NV_STATUS status;
 
-    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory));
+    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory, NV_FALSE));
 
     if (pMemory->KernelVAddr == NvP64_NULL)
     {
@@ -308,6 +313,8 @@ dmaNvos32ToPageSizeAttr
                     return RM_ATTR_PAGE_SIZE_HUGE;
                 case NVOS32_ATTR2_PAGE_SIZE_HUGE_512MB:
                     return RM_ATTR_PAGE_SIZE_512MB;
+                case NVOS32_ATTR2_PAGE_SIZE_HUGE_256GB:
+                    return RM_ATTR_PAGE_SIZE_256GB;
             }
             break;
     }
@@ -335,6 +342,8 @@ memConstructCommon_IMPL
 {
     OBJGPU            *pGpu           = NULL;
     NV_STATUS          status         = NV_OK;
+    NvHandle           hParent        = RES_GET_PARENT_HANDLE(pMemory);
+    NvHandle           hMemory        = RES_GET_HANDLE(pMemory);
 
     if (pMemDesc == NULL)
         return NV_ERR_INVALID_ARGUMENT;
@@ -470,13 +479,21 @@ memConstructCommon_IMPL
     if (status != NV_OK)
         goto done;
 
+    // Make GSP-RM aware of the memory descriptor so it can be used there
+    if (FLD_TEST_DRF(OS32, _ATTR2, _REGISTER_MEMDESC_TO_PHYS_RM, _TRUE, attr2))
+    {
+        status = memRegisterWithGsp(pGpu, RES_GET_CLIENT(pMemory), hParent, hMemory);
+        if (status != NV_OK)
+            goto done;
+    }
+
     // Initialize the circular list item for tracking dup/sharing of pMemDesc
     pMemory->dupListItem.pNext = pMemory->dupListItem.pPrev = pMemory;
 
 done:
     if (status != NV_OK)
     {
-        if (pMemory != NULL && pMemory->pHwResource != NULL)
+        if (pMemory->pHwResource != NULL)
         {
             portMemFree(pMemory->pHwResource);
         }
@@ -487,6 +504,136 @@ done:
     }
 
     return status;
+}
+
+NV_STATUS
+memRegisterWithGsp_IMPL
+(
+    OBJGPU *pGpu,
+    RsClient *pClient,
+    NvHandle hParent,
+    NvHandle hMemory
+)
+{
+    NV_STATUS          status     = NV_OK;
+    Memory            *pMemory    = NULL;
+    RsResourceRef     *pMemoryRef = NULL;
+    MEMORY_DESCRIPTOR *pMemDesc   = NULL;
+    NvU32              hClass;
+
+    // Nothing to do without GSP
+    if (!IS_GSP_CLIENT(pGpu))
+    {
+        return NV_OK;
+    }
+
+    NV_CHECK_OK_OR_RETURN(LEVEL_ERROR, clientGetResourceRef(pClient, hMemory, &pMemoryRef));
+
+    pMemory = dynamicCast(pMemoryRef->pResource, Memory);
+    NV_CHECK_OR_RETURN(LEVEL_ERROR, pMemory != NULL, NV_ERR_INVALID_OBJECT);
+
+    pMemDesc = pMemory->pMemDesc;
+
+    // Check: memory already registered
+    if (pMemory->bRegisteredWithGsp)
+    {
+        return NV_OK;
+    }
+
+    // Check:  no subdevice memDescs
+    NV_CHECK_OR_RETURN(LEVEL_ERROR,
+                       !memdescHasSubDeviceMemDescs(pMemDesc),
+                       NV_ERR_INVALID_STATE);
+
+    // Check: SYSMEM or FBMEM only
+    if (memdescGetAddressSpace(pMemDesc) == ADDR_FBMEM)
+        hClass = NV01_MEMORY_LIST_FBMEM;
+    else if  (memdescGetAddressSpace(pMemDesc) == ADDR_SYSMEM)
+        hClass = NV01_MEMORY_LIST_SYSTEM;
+    else
+        return NV_ERR_INVALID_STATE;
+
+    NvU32 os02Flags = 0;
+
+    NV_CHECK_OK_OR_RETURN(LEVEL_ERROR,
+                          RmDeprecatedConvertOs32ToOs02Flags(pMemory->Attr,
+                                                             pMemory->Attr2,
+                                                             pMemory->Flags,
+                                                             &os02Flags));
+    NV_RM_RPC_ALLOC_MEMORY(pGpu,
+                           pClient->hClient,
+                           hParent,
+                           hMemory,
+                           hClass,
+                           os02Flags,
+                           pMemDesc,
+                           status);
+
+    if (status == NV_OK)
+    {
+        // Mark memory as registered in GSP
+        pMemory->bRegisteredWithGsp = NV_TRUE;
+    }
+
+    return status;
+}
+
+static void
+_memUnregisterFromGsp
+(
+    Memory *pMemory,
+    RsClient *pClient,
+    NvHandle hParent,
+    NvHandle hMemory
+)
+{
+    NV_STATUS status = NV_OK;
+
+    // Nothing to do without GSP
+    if ((pMemory->pGpu == NULL) ||
+        !IS_GSP_CLIENT(pMemory->pGpu))
+    {
+        return;
+    }
+
+    // Nothing to do if memory is not registered to GSP
+    if (!pMemory->bRegisteredWithGsp)
+    {
+        return;
+    }
+
+    NV_RM_RPC_FREE(pMemory->pGpu,
+                   pClient->hClient,
+                   hParent,
+                   hMemory,
+                   status);
+
+    if (status == NV_OK)
+    {
+        // Mark memory as not registered in GSP
+        pMemory->bRegisteredWithGsp = NV_FALSE;
+    }
+    else
+    {
+        NV_PRINTF(LEVEL_ERROR,
+                  "Failed to unregister hMemory 0x%08x from GSP, status 0x%08x\n",
+                  hMemory, status);
+    }
+}
+
+static NvBool
+_memCheckHostVgpuDeviceExists
+(
+    OBJGPU *pGpu
+)
+{
+    NV_STATUS status;
+
+    KERNEL_HOST_VGPU_DEVICE *pKernelHostVgpuDevice = NULL;
+
+    NV_ASSERT_OK_OR_ELSE(status, vgpuGetCallingContextKernelHostVgpuDevice(pGpu, &pKernelHostVgpuDevice), return NV_FALSE);
+
+    return (pKernelHostVgpuDevice != NULL);
 }
 
 static void
@@ -542,7 +689,7 @@ _memDestructCommonWithDevice
         if (--pMemory->pHwResource->refCount == 0)
         {
             MemoryManager *pMemoryManager = GPU_GET_MEMORY_MANAGER(pGpu);
-            NvBool bHostVgpuDeviceExists = NV_FALSE;
+            NvBool bHostVgpuDeviceExists = _memCheckHostVgpuDeviceExists(pGpu);
 
             if ((pMemory->categoryClassId == NV01_MEMORY_SYSTEM && memmgrComprSupported(pMemoryManager, ADDR_SYSMEM)) ||
                 (bHostVgpuDeviceExists && (pMemory->pHwResource->isGuestAllocated)))
@@ -572,6 +719,8 @@ _memDestructCommonWithDevice
                 pFbAllocInfo->hwResId = memdescGetHwResId(pMemory->pMemDesc);
                 pFbAllocInfo->size = pMemory->Length;
                 pFbAllocInfo->format = memdescGetPteKind(pMemory->pMemDesc);
+                pFbAllocInfo->hClient = pRsClient->hClient;
+                pFbAllocInfo->hDevice = hDevice;
 
                 //
                 // Note that while freeing duped memory under a device, the
@@ -615,18 +764,16 @@ memDestructCommon_IMPL
     Memory *pMemory
 )
 {
-    OBJGPU             *pGpu            = pMemory->pGpu;
     RsResourceRef      *pResourceRef    = RES_GET_REF(pMemory);
     RsResourceRef      *pParentRef      = pResourceRef->pParentRef;
     RsClient           *pClient         = RES_GET_CLIENT(pMemory);
-    NvHandle            hClient         = pClient->hClient;
     NvHandle            hParent         = pParentRef->hResource;
     NvHandle            hMemory         = RES_GET_HANDLE(pMemory);
 
     if (!pMemory->bConstructed)
         return;
 
-    NV_ASSERT_OK(memdescDeregisterFromGSP(pGpu, hClient, hParent, hMemory));
+    _memUnregisterFromGsp(pMemory, pClient, hParent, hMemory);
 
     // Do device specific teardown if we have a device
     if (pMemory->pDevice != NULL)
@@ -693,7 +840,7 @@ memGetByHandle_IMPL
     if (*ppMemory == NULL)
         return NV_ERR_INVALID_OBJECT_HANDLE;
 
-    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(*ppMemory));
+    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(*ppMemory, NV_FALSE));
 
     return NV_OK;
 }
@@ -707,21 +854,32 @@ memGetByHandleAndGroupedGpu_IMPL
     Memory   **ppMemory
 )
 {
-    Device      *pDevice;
+    Memory      *pMemory;
     NV_STATUS    status;
+    Device      *pDevice;
 
-    // Get device handle
-    status = deviceGetByInstance(pClient, gpuGetDeviceInstance(pGpu), &pDevice);
+    status = memGetByHandle(pClient, hMemory, &pMemory);
     if (status != NV_OK)
-        return NV_ERR_INVALID_OBJECT_HANDLE;
+        return status;
 
-    return memGetByHandleAndDevice(pClient, hMemory, RES_GET_HANDLE(pDevice), ppMemory);
+    pDevice = pMemory->pDevice;
+
+    if ((pDevice == NULL) ||
+        (gpumgrGetParentGPU(pGpu) != GPU_RES_GET_GPU(pDevice)))
+    {
+        *ppMemory = NULL;
+        return NV_ERR_OBJECT_NOT_FOUND;
+    }
+
+    *ppMemory = pMemory;
+    return NV_OK;
 }
 
 NV_STATUS
 memIsReady_IMPL
 (
-    Memory *pMemory
+    Memory *pMemory,
+    NvBool  bCopyConstructorContext
 )
 {
     if (pMemory->pMemDesc == NULL)
@@ -740,15 +898,23 @@ memControl_IMPL
 {
     RmCtrlParams *pRmCtrlParams = pParams->pLegacyParams;
 
-    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory));
+    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory, NV_FALSE));
 
     if (!pMemory->pGpu)
         return NV_ERR_INVALID_OBJECT_PARENT;
 
     if (REF_VAL(NVXXXX_CTRL_CMD_CLASS, pParams->cmd) == NV04_MEMORY)
     {
-        if (pMemory->categoryClassId == NV01_MEMORY_SYSTEM_OS_DESCRIPTOR)
+        //
+        // Tegra SOC import memory usecase uses NV01_MEMORY_SYSTEM_OS_DESCRIPTOR class for
+        // RM resource server registration of memory, RM can return the physical memory attributes
+        // for these imported buffers.
+        //
+        if ((pMemory->categoryClassId == NV01_MEMORY_SYSTEM_OS_DESCRIPTOR) &&
+            (pParams->cmd != NV0041_CTRL_CMD_GET_SURFACE_PHYS_ATTR))
+        {
             return NV_ERR_NOT_SUPPORTED;
+        }
     }
 
     pRmCtrlParams->pGpu = pMemory->pGpu;
@@ -787,7 +953,7 @@ memCopyConstruct_IMPL
     NV_ASSERT_OR_RETURN(pDstParentRef != NULL, NV_ERR_INVALID_OBJECT_PARENT);
     NV_ASSERT_OR_RETURN(pMemorySrc != NULL, NV_ERR_INVALID_OBJECT_HANDLE);
 
-    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemorySrc));
+    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemorySrc, NV_TRUE));
 
     //
     // Must return early when parent is Client.
@@ -796,8 +962,8 @@ memCopyConstruct_IMPL
     //
     if (RES_GET_CLIENT_HANDLE(pMemoryDst) == RES_GET_PARENT_HANDLE(pMemoryDst))
     {
-        NV_ASSERT_OR_RETURN(RES_GET_CLIENT_HANDLE(pMemorySrc) ==
-                          RES_GET_PARENT_HANDLE(pMemorySrc),
+        NV_CHECK_OR_RETURN(LEVEL_ERROR,
+                RES_GET_CLIENT_HANDLE(pMemorySrc) == RES_GET_PARENT_HANDLE(pMemorySrc),
                 NV_ERR_INVALID_OBJECT_PARENT);
         return NV_OK;
     }
@@ -815,7 +981,7 @@ memCopyConstruct_IMPL
 
     if (!!pSrcSubDevice != !!pDstSubDevice)
     {
-        NV_PRINTF(LEVEL_ERROR, "Parent type mismatch between Src and Dst objects"
+        NV_PRINTF(LEVEL_INFO, "Parent type mismatch between Src and Dst objects"
                                "Both should be either device or subDevice\n");
         return NV_ERR_INVALID_OBJECT_PARENT;
     }
@@ -839,7 +1005,7 @@ memCopyConstruct_IMPL
     }
 
     NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
-                        memCheckCopyPermissions(pMemorySrc, pDstGpu, pDstClient->hClient), done);
+                        memCheckCopyPermissions(pMemorySrc, pDstGpu, pDstDevice), done);
 
     // Initialize Memory
     pMemoryDst->categoryClassId = pMemorySrc->categoryClassId;
@@ -945,7 +1111,7 @@ memGetMemInterMapParams_IMPL
     NvHandle            hMemoryDevice = 0;
     OBJGPU             *pSrcGpu = pGpu;
 
-    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory));
+    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory, NV_FALSE));
 
     if (pMemoryRef->pParentRef != NULL)
     {
@@ -978,19 +1144,6 @@ memGetMemInterMapParams_IMPL
     //
     gpumgrSetBcEnabledStatus(pGpu, bcState);
 
-    //
-    // Mapping Guest allocated memory in PF is not supported
-    //
-    if (pSrcMemDesc->pGpu != pGpu && gpuIsSriovEnabled(pGpu) &&
-        !(memdescGetFlag(pSrcMemDesc, MEMDESC_FLAGS_GUEST_ALLOCATED)))
-    {
-        //
-        // Memory allocated by pSrcMemDesc->pGpu needs to be
-        // remapped for pGpu as requested by client.
-        //
-        pParams->bDmaMapNeeded = NV_TRUE;
-    }
-
     pParams->pSrcMemDesc = pSrcMemDesc;
 
     pFlaMemory = dynamicCast(pMemoryRef->pResource, FlaMemory);
@@ -1014,7 +1167,7 @@ memGetMemoryMappingDescriptor_IMPL
     MEMORY_DESCRIPTOR **ppMemDesc
 )
 {
-    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory));
+    NV_CHECK_OK_OR_RETURN(LEVEL_INFO, memIsReady(pMemory, NV_FALSE));
     if (pMemory->pGpu != NULL)
     {
         *ppMemDesc = memdescGetMemDescFromGpu(pMemory->pMemDesc, pMemory->pGpu);
@@ -1026,3 +1179,29 @@ memGetMemoryMappingDescriptor_IMPL
     return NV_OK;
 }
 
+NV_STATUS
+memIsDuplicate_IMPL
+(
+    Memory   *pMemory,
+    NvHandle  hMemory,
+    NvBool   *pDuplicate
+)
+{
+    RsClient *pClient = RES_GET_CLIENT(pMemory);
+    Memory *pMemory1;
+
+    NV_CHECK_OK_OR_RETURN(LEVEL_SILENT,
+                          memIsReady(pMemory, NV_FALSE));
+
+    NV_CHECK_OK_OR_RETURN(LEVEL_SILENT,
+                          memGetByHandle(pClient, hMemory, &pMemory1));
+
+    //
+    // Do not dereference pMemdesc here. We only take RMAPI RO lock and
+    // client lock in this context.
+    //
+
+    *pDuplicate = (pMemory->pMemDesc == pMemory1->pMemDesc);
+
+    return NV_OK;
+}

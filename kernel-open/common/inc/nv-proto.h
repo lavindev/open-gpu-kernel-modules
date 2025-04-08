@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -25,13 +25,8 @@
 #define _NV_PROTO_H_
 
 #include "nv-pci.h"
-#include "nv-register-module.h"
-
-
-
 
 extern const char *nv_device_name;
-extern nvidia_module_t nv_fops;
 
 void        nv_acpi_register_notifier   (nv_linux_state_t *);
 void        nv_acpi_unregister_notifier (nv_linux_state_t *);
@@ -57,8 +52,6 @@ void        nv_free_contig_pages        (nv_alloc_t *);
 NV_STATUS   nv_alloc_system_pages       (nv_state_t *, nv_alloc_t *);
 void        nv_free_system_pages        (nv_alloc_t *);
 
-void        nv_address_space_init_once  (struct address_space *mapping);
-
 int         nv_uvm_init                 (void);
 void        nv_uvm_exit                 (void);
 NV_STATUS   nv_uvm_suspend              (void);
@@ -66,6 +59,8 @@ NV_STATUS   nv_uvm_resume               (void);
 void        nv_uvm_notify_start_device  (const NvU8 *uuid);
 void        nv_uvm_notify_stop_device   (const NvU8 *uuid);
 NV_STATUS   nv_uvm_event_interrupt      (const NvU8 *uuid);
+NV_STATUS   nv_uvm_drain_P2P            (const NvU8 *uuid);
+NV_STATUS   nv_uvm_resume_P2P           (const NvU8 *uuid);
 
 /* Move these to nv.h once implemented by other UNIX platforms */
 NvBool      nvidia_get_gpuid_list       (NvU32 *gpu_ids, NvU32 *gpu_count);
@@ -91,8 +86,11 @@ void          nv_shutdown_adapter(nvidia_stack_t *, nv_state_t *, nv_linux_state
 void          nv_dev_free_stacks(nv_linux_state_t *);
 NvBool        nv_lock_init_locks(nvidia_stack_t *, nv_state_t *);
 void          nv_lock_destroy_locks(nvidia_stack_t *, nv_state_t *);
-void          nv_linux_add_device_locked(nv_linux_state_t *);
+int           nv_linux_add_device_locked(nv_linux_state_t *);
 void          nv_linux_remove_device_locked(nv_linux_state_t *);
 NvBool        nv_acpi_power_resource_method_present(struct pci_dev *);
+
+int           nv_linux_init_open_q(nv_linux_state_t *);
+void          nv_linux_stop_open_q(nv_linux_state_t *);
 
 #endif /* _NV_PROTO_H_ */

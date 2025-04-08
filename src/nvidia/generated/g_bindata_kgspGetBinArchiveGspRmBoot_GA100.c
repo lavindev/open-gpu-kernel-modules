@@ -152,8 +152,8 @@ static const BINDATA_ARCHIVE __kgspGetBinArchiveGspRmBoot_GA100 =
     2,  // entryNum
     {
         // entries[] : { "name", pBinStorage }
-        { "ucode_image"       , (const PBINDATA_STORAGE) &g_bindata_pvt.kgspBinArchiveGspRmBoot_GA100_ucode_image_storage_pvt },
-        { "ucode_desc"        , (const PBINDATA_STORAGE) &g_bindata_pvt.kgspBinArchiveGspRmBoot_GA100_ucode_desc_storage_pvt },
+        { "ucode_image"       , (const PBINDATA_STORAGE) &g_bindata_pvt[__idx_kgspBinArchiveGspRmBoot_GA100_ucode_image] },
+        { "ucode_desc"        , (const PBINDATA_STORAGE) &g_bindata_pvt[__idx_kgspBinArchiveGspRmBoot_GA100_ucode_desc] },
     }
 };
 
@@ -167,6 +167,14 @@ const BINDATA_ARCHIVE *kgspGetBinArchiveGspRmBoot_GA100(struct KernelGsp *pKerne
     return &__kgspGetBinArchiveGspRmBoot_GA100;
 }
 #endif // defined(BINDATA_INCLUDE_FUNCTION)
+
+
+#if defined(BINDATA_INCLUDE_FUNCTION_STUB)
+const BINDATA_ARCHIVE *kgspGetBinArchiveGspRmBoot_GA100(struct KernelGsp *pKernelGsp)
+{
+    return NULL;
+}
+#endif // defined(BINDATA_INCLUDE_FUNCTION_STUB)
 
 
 

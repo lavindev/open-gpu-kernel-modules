@@ -1,5 +1,5 @@
 /*******************************************************************************
-    Copyright (c) 2013-2021 NVIDIA Corporation
+    Copyright (c) 2013-2023 NVIDIA Corporation
 
     This program is free software; you can redistribute it and/or
     modify it under the terms of the GNU General Public License
@@ -34,7 +34,7 @@ static int uvm_debug_prints = UVM_IS_DEBUG() || UVM_IS_DEVELOP();
 module_param(uvm_debug_prints, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(uvm_debug_prints, "Enable uvm debug prints.");
 
-bool uvm_debug_prints_enabled()
+bool uvm_debug_prints_enabled(void)
 {
     return uvm_debug_prints != 0;
 }
@@ -233,18 +233,6 @@ unsigned uvm_get_stale_thread_id(void)
     return (unsigned)task_pid_vnr(current);
 }
 
-//
-// A simple security rule for allowing access to UVM user space memory: if you
-// are the same user as the owner of the memory, or if you are root, then you
-// are granted access. The idea is to allow debuggers and profilers to work, but
-// without opening up any security holes.
-//
-NvBool uvm_user_id_security_check(uid_t euidTarget)
-{
-    return (NV_CURRENT_EUID() == euidTarget) ||
-           (UVM_ROOT_UID == euidTarget);
-}
-
 void on_uvm_test_fail(void)
 {
     (void)NULL;
@@ -293,29 +281,6 @@ NV_STATUS uvm_spin_loop(uvm_spin_loop_t *spin)
     return NV_OK;
 }
 
-// This formats a GPU UUID, in a UVM-friendly way. That is, nearly the same as
-// what nvidia-smi reports.  It will always prefix the UUID with UVM-GPU so
-// that we know that we have a real, binary formatted UUID that will work in
-// the UVM APIs.
-//
-// It comes out like this:
-//
-//     UVM-GPU-d802726c-df8d-a3c3-ec53-48bdec201c27
-//
-//  This routine will always null-terminate the string for you. This is true
-//  even if the buffer was too small!
-//
-//  Return value is the number of non-null characters written.
-//
-// Note that if you were to let the NV2080_CTRL_CMD_GPU_GET_GID_INFO command
-// return it's default format, which is ascii, not binary, then you would get
-// this back:
-//
-//     GPU-d802726c-df8d-a3c3-ec53-48bdec201c27
-//
-//  ...which is actually a character string, and won't work for UVM API calls.
-//  So it's very important to be able to see the difference.
-//
 static char uvm_digit_to_hex(unsigned value)
 {
     if (value >= 10)
@@ -324,26 +289,19 @@ static char uvm_digit_to_hex(unsigned value)
         return value + '0';
 }
 
-int format_uuid_to_buffer(char *buffer, unsigned bufferLength, const NvProcessorUuid *pUuidStruct)
+void uvm_uuid_string(char *buffer, const NvProcessorUuid *pUuidStruct)
 {
-    char *str = buffer+8;
+    char *str = buffer;
     unsigned i;
     unsigned dashMask = 1 << 4 | 1 << 6 | 1 << 8 | 1 << 10;
-
-    memcpy(buffer, "UVM-GPU-", 8);
-    if (bufferLength < (8 /*prefix*/+ 16 * 2 /*digits*/ + 4 * 1 /*dashes*/ + 1 /*null*/))
-        return *buffer = 0;
 
     for (i = 0; i < 16; i++) {
         *str++ = uvm_digit_to_hex(pUuidStruct->uuid[i] >> 4);
         *str++ = uvm_digit_to_hex(pUuidStruct->uuid[i] & 0xF);
 
-        if (dashMask & (1 << (i+1)))
+        if (dashMask & (1 << (i + 1)))
             *str++ = '-';
     }
 
     *str = 0;
-
-    return (int)(str-buffer);
 }
-

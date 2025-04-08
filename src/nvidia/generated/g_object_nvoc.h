@@ -1,6 +1,13 @@
+
 #ifndef _G_OBJECT_NVOC_H_
 #define _G_OBJECT_NVOC_H_
 #include "nvoc/runtime.h"
+
+// Version of generated metadata structures
+#ifdef NVOC_METADATA_VERSION
+#undef NVOC_METADATA_VERSION
+#endif
+#define NVOC_METADATA_VERSION 1
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,6 +40,7 @@ extern "C" {
  * This file is part of the NVOC runtime.
  */
 
+#pragma once
 #include "g_object_nvoc.h"
 
 #ifndef _NVOC_OBJECT_H_
@@ -42,6 +50,7 @@ extern "C" {
 #include "nvstatus.h"
 
 #include "nvoc/prelude.h"
+
 
 struct Object;
 
@@ -68,17 +77,30 @@ struct NVOC_CHILD_TREE
 };
 
 //! The base class of all instantiable NVOC objects.
+
+// Private field names are wrapped in PRIVATE_FIELD, which does nothing for
+// the matching C source file, but causes diagnostics to be issued if another
+// source file references the field.
 #ifdef NVOC_OBJECT_H_PRIVATE_ACCESS_ALLOWED
 #define PRIVATE_FIELD(x) x
 #else
 #define PRIVATE_FIELD(x) NVOC_PRIVATE_FIELD(x)
 #endif
+
+
 struct Object {
+
+    // Metadata
     const struct NVOC_RTTI *__nvoc_rtti;
-    struct Object *__nvoc_pbase_Object;
+
+    // Ancestor object pointers for `staticCast` feature
+    struct Object *__nvoc_pbase_Object;    // obj
+
+    // Data members
     struct Object *pParent;
     struct NVOC_CHILD_TREE childTree;
     NvU32 ipVersion;
+    NvU32 createFlags;
 };
 
 #ifndef __NVOC_CLASS_Object_TYPEDEF__
@@ -90,6 +112,7 @@ typedef struct Object Object;
 #define __nvoc_class_id_Object 0x497031
 #endif /* __nvoc_class_id_Object */
 
+// Casting support
 extern const struct NVOC_CLASS_DEF __nvoc_class_def_Object;
 
 #define __staticCast_Object(pThis) \
@@ -102,14 +125,18 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_Object;
     ((Object*)__nvoc_dynamicCast(staticCast((pThis), Dynamic), classInfo(Object)))
 #endif //__nvoc_object_h_disabled
 
-
 NV_STATUS __nvoc_objCreateDynamic_Object(Object**, Dynamic*, NvU32, va_list);
 
 NV_STATUS __nvoc_objCreate_Object(Object**, Dynamic*, NvU32);
 #define __objCreate_Object(ppNewObj, pParent, createFlags) \
     __nvoc_objCreate_Object((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
 
+
+// Wrapper macros
+
+// Dispatch functions
 void objAddChild_IMPL(struct Object *pObj, struct Object *pChild);
+
 #ifdef __nvoc_object_h_disabled
 static inline void objAddChild(struct Object *pObj, struct Object *pChild) {
     NV_ASSERT_FAILED_PRECOMP("Object was disabled!");
@@ -119,6 +146,7 @@ static inline void objAddChild(struct Object *pObj, struct Object *pChild) {
 #endif //__nvoc_object_h_disabled
 
 void objRemoveChild_IMPL(struct Object *pObj, struct Object *pChild);
+
 #ifdef __nvoc_object_h_disabled
 static inline void objRemoveChild(struct Object *pObj, struct Object *pChild) {
     NV_ASSERT_FAILED_PRECOMP("Object was disabled!");
@@ -128,6 +156,7 @@ static inline void objRemoveChild(struct Object *pObj, struct Object *pChild) {
 #endif //__nvoc_object_h_disabled
 
 struct Object *objGetChild_IMPL(struct Object *pObj);
+
 #ifdef __nvoc_object_h_disabled
 static inline struct Object *objGetChild(struct Object *pObj) {
     NV_ASSERT_FAILED_PRECOMP("Object was disabled!");
@@ -138,6 +167,7 @@ static inline struct Object *objGetChild(struct Object *pObj) {
 #endif //__nvoc_object_h_disabled
 
 struct Object *objGetSibling_IMPL(struct Object *pObj);
+
 #ifdef __nvoc_object_h_disabled
 static inline struct Object *objGetSibling(struct Object *pObj) {
     NV_ASSERT_FAILED_PRECOMP("Object was disabled!");
@@ -148,6 +178,7 @@ static inline struct Object *objGetSibling(struct Object *pObj) {
 #endif //__nvoc_object_h_disabled
 
 struct Object *objGetDirectParent_IMPL(struct Object *pObj);
+
 #ifdef __nvoc_object_h_disabled
 static inline struct Object *objGetDirectParent(struct Object *pObj) {
     NV_ASSERT_FAILED_PRECOMP("Object was disabled!");
@@ -160,10 +191,10 @@ static inline struct Object *objGetDirectParent(struct Object *pObj) {
 #undef PRIVATE_FIELD
 
 
-// 
-// IP versioning definitions are temporary until NVOC halspec support is 
-// finished. 
-//  
+//
+// IP versioning definitions are temporary until NVOC halspec support is
+// finished.
+//
 // IP_VERSION format as defined by the hardware engines.
 // A _MAJOR value of 0 means the object has no version number.
 //
@@ -174,8 +205,6 @@ static inline struct Object *objGetDirectParent(struct Object *pObj) {
 #define NV_ODB_IP_VER_MAJOR                                   31:24 /* R-IVF */
 
 #define IPVersion(pObj)                            staticCast((pObj), Object)->ipVersion
-#define IsIPVersionValid(pObj)                     (DRF_VAL(_ODB, _IP_VER, _MAJOR, IPVersion(pObj)) != 0)
-#define IsIPVersionOrLater(pObj, v0)               (IPVersion(pObj) >= (v0))
 //  v0 .. v1  inclusive
 #define IsIPVersionInRange(pObj, v0, v1)           ((IPVersion(pObj) >= (v0)) && (IPVersion(pObj) <= (v1)))
 
@@ -184,4 +213,5 @@ static inline struct Object *objGetDirectParent(struct Object *pObj) {
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
 #endif // _G_OBJECT_NVOC_H_

@@ -31,6 +31,9 @@ extern "C" {
 #endif
 
 void nvDpyProbeMaxPixelClock(NVDpyEvoPtr pDpyEvo);
+NVEvoPassiveDpDongleType nvDpyGetPassiveDpDongleType(
+    const NVDpyEvoRec *pDpyEvo,
+    NvU32 *passiveDpDongleMaxPclkKHz);
 void nvDpySetValidSyncsEvo(const NVDpyEvoRec *pDpyEvo,
                            struct NvKmsModeValidationValidSyncs *pValidSyncs);
 NVDpyEvoPtr nvAllocDpyEvo(NVDispEvoPtr pDispEvo,
@@ -39,13 +42,12 @@ NVDpyEvoPtr nvAllocDpyEvo(NVDispEvoPtr pDispEvo,
 void nvFreeDpyEvo(NVDispEvoPtr pDispEvo, NVDpyEvoPtr pDpyEvo);
 NVConnectorEvoPtr nvGetConnectorFromDisp(NVDispEvoPtr pDispEvo, NVDpyId dpyId);
 
-void nvUpdateInfoFrames(const NVDispEvoRec *pDispEvo, const NvU32 head);
+void nvDpyAssignSDRInfoFramePayload(NVT_HDR_INFOFRAME_PAYLOAD *pPayload);
+void nvCancelSDRTransitionTimer(NVDpyEvoRec *pDpyEvo);
+void nvUpdateInfoFrames(NVDpyEvoRec *pDpyEvo);
 
 NvBool nvDpyRequiresDualLinkEvo(const NVDpyEvoRec *pDpyEvo,
                                 const NVHwModeTimingsEvo *pTimings);
-
-NVHwModeTimingsEvoPtr
-nvGetCurrentModeTimingsForDpyEvo(const NVDpyEvoRec *pDpyEvo);
 
 NVDpyEvoPtr nvGetDpyEvoFromDispEvo(const NVDispEvoRec *pDispEvo, NVDpyId dpyId);
 
@@ -76,10 +78,21 @@ void nvDpyUpdateCurrentAttributes(NVDpyEvoRec *pDpyEvo);
 
 NvBool nvDpyIsAdaptiveSync(const NVDpyEvoRec *pDpyEvo);
 
-NvBool nvDpyIsAdaptiveSyncDefaultlisted(const NVParsedEdidEvoRec *pParsedEdid);
+NvBool nvDpyIsAdaptiveSyncDefaultlisted(const NVDpyEvoRec *pDpyEvo);
 
 enum NvKmsDpyAttributeDigitalSignalValue
 nvGetDefaultDpyAttributeDigitalSignalValue(const NVConnectorEvoRec *pConnectorEvo);
+
+NvKmsDpyOutputColorFormatInfo nvDpyGetOutputColorFormatInfo(
+    const NVDpyEvoRec *pDpyEvo);
+
+NvU32 nvDpyGetPossibleApiHeadsMask(const NVDpyEvoRec *pDpyEvo);
+
+NvBool nvDpyIsHDRCapable(const NVDpyEvoRec *pDpyEvo);
+
+void nvConstructDpVscSdp(const NVDispHeadInfoFrameStateEvoRec *pInfoFrame,
+                         const NVDpyAttributeColor *pDpyColor,
+                         DPSDP_DP_VSC_SDP_DESCRIPTOR *sdp);
 
 #ifdef __cplusplus
 };

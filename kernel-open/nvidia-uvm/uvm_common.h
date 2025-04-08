@@ -1,5 +1,5 @@
 /*******************************************************************************
-    Copyright (c) 2013-2021 NVIDIA Corporation
+    Copyright (c) 2013-2024 NVIDIA Corporation
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to
@@ -21,8 +21,8 @@
 
 *******************************************************************************/
 
-#ifndef _UVM_COMMON_H
-#define _UVM_COMMON_H
+#ifndef __UVM_COMMON_H__
+#define __UVM_COMMON_H__
 
 #ifdef DEBUG
     #define UVM_IS_DEBUG() 1
@@ -50,10 +50,14 @@ enum {
     NVIDIA_UVM_NUM_MINOR_DEVICES
 };
 
-#define UVM_GPU_UUID_TEXT_BUFFER_LENGTH (8+16*2+4+1)
+// UUID has the format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+#define UVM_UUID_STRING_LENGTH ((8 + 1) + 3 * (4 + 1) + 12 + 1)
 
-int format_uuid_to_buffer(char *buffer, unsigned bufferLength, const NvProcessorUuid *pGpuUuid);
+// Writes UVM_UUID_STRING_LENGTH characters into buffer, including a terminating
+// NULL.
+void uvm_uuid_string(char *buffer, const NvProcessorUuid *uuid);
 
+// Long prefix - typically for debugging and tests.
 #define UVM_PRINT_FUNC_PREFIX(func, prefix, fmt, ...) \
     func(prefix "%s:%u %s[pid:%d]" fmt,               \
          kbasename(__FILE__),                         \
@@ -62,10 +66,15 @@ int format_uuid_to_buffer(char *buffer, unsigned bufferLength, const NvProcessor
          current->pid,                                \
          ##__VA_ARGS__)
 
+// Short prefix - typically for information.
+#define UVM_PRINT_FUNC_SHORT_PREFIX(func, prefix, fmt, ...) \
+    func(prefix fmt, ##__VA_ARGS__)
+
+// No prefix - used by kernel panic messages.
 #define UVM_PRINT_FUNC(func, fmt, ...)  \
     UVM_PRINT_FUNC_PREFIX(func, "", fmt, ##__VA_ARGS__)
 
-// Check whether UVM_{ERR,DBG,INFO)_PRINT* should be enabled
+// Check whether UVM_{ERR,DBG)_PRINT* should be enabled.
 bool uvm_debug_prints_enabled(void);
 
 // A printing helper like UVM_PRINT_FUNC_PREFIX that only prints if
@@ -77,10 +86,10 @@ bool uvm_debug_prints_enabled(void);
         }                                                               \
     } while (0)
 
-#define UVM_ASSERT_PRINT(fmt, ...) \
+#define UVM_ERR_PRINT_ALWAYS(fmt, ...) \
     UVM_PRINT_FUNC_PREFIX(printk, KERN_ERR NVIDIA_UVM_PRETTY_PRINTING_PREFIX, " " fmt, ##__VA_ARGS__)
 
-#define UVM_ASSERT_PRINT_RL(fmt, ...) \
+#define UVM_ERR_PRINT_ALWAYS_RL(fmt, ...) \
     UVM_PRINT_FUNC_PREFIX(printk_ratelimited, KERN_ERR NVIDIA_UVM_PRETTY_PRINTING_PREFIX, " " fmt, ##__VA_ARGS__)
 
 #define UVM_ERR_PRINT(fmt, ...) \
@@ -92,32 +101,17 @@ bool uvm_debug_prints_enabled(void);
 #define UVM_DBG_PRINT(fmt, ...) \
     UVM_PRINT_FUNC_PREFIX_CHECK(printk, KERN_DEBUG NVIDIA_UVM_PRETTY_PRINTING_PREFIX, " " fmt, ##__VA_ARGS__)
 
-#define UVM_DBG_PRINT_RL(fmt, ...)                              \
+#define UVM_DBG_PRINT_RL(fmt, ...) \
     UVM_PRINT_FUNC_PREFIX_CHECK(printk_ratelimited, KERN_DEBUG NVIDIA_UVM_PRETTY_PRINTING_PREFIX, " " fmt, ##__VA_ARGS__)
 
+// UVM_INFO_PRINT prints in all modes (including in the release mode.) It is
+// used for relaying driver-level information, rather than detailed debugging
+// information; therefore, it does not add the "pretty long prefix".
 #define UVM_INFO_PRINT(fmt, ...) \
-    UVM_PRINT_FUNC_PREFIX_CHECK(printk, KERN_INFO NVIDIA_UVM_PRETTY_PRINTING_PREFIX, " " fmt, ##__VA_ARGS__)
+    UVM_PRINT_FUNC_SHORT_PREFIX(printk, KERN_INFO NVIDIA_UVM_PRETTY_PRINTING_PREFIX, " " fmt, ##__VA_ARGS__)
 
-//
-// Please see the documentation of format_uuid_to_buffer, for details on what
-// this routine prints for you.
-//
-#define UVM_DBG_PRINT_UUID(msg, uuidPtr)                                \
-    do {                                                                \
-        char uuidBuffer[UVM_GPU_UUID_TEXT_BUFFER_LENGTH];               \
-        format_uuid_to_buffer(uuidBuffer, sizeof(uuidBuffer), uuidPtr); \
-        UVM_DBG_PRINT("%s: %s\n", msg, uuidBuffer);                     \
-    } while (0)
-
-#define UVM_ERR_PRINT_NV_STATUS(msg, rmStatus, ...)                        \
+#define UVM_ERR_PRINT_NV_STATUS(msg, rmStatus, ...) \
     UVM_ERR_PRINT("ERROR: %s : " msg "\n", nvstatusToString(rmStatus), ##__VA_ARGS__)
-
-#define UVM_ERR_PRINT_UUID(msg, uuidPtr, ...)                              \
-    do {                                                                   \
-        char uuidBuffer[UVM_GPU_UUID_TEXT_BUFFER_LENGTH];                  \
-        format_uuid_to_buffer(uuidBuffer, sizeof(uuidBuffer), uuidPtr);    \
-        UVM_ERR_PRINT("ERROR: %s : " msg "\n", uuidBuffer, ##__VA_ARGS__); \
-    } while (0)
 
 #define UVM_PANIC()             UVM_PRINT_FUNC(panic, "\n")
 #define UVM_PANIC_MSG(fmt, ...) UVM_PRINT_FUNC(panic, ": " fmt, ##__VA_ARGS__)
@@ -149,13 +143,13 @@ void on_uvm_test_fail(void);
 // Unlike on_uvm_test_fail it provides 'panic' coverity semantics
 void on_uvm_assert(void);
 
-#define _UVM_ASSERT_MSG(expr, cond, fmt, ...)                                                   \
-    do {                                                                                        \
-        if (unlikely(!(expr))) {                                                                \
-            UVM_ASSERT_PRINT("Assert failed, condition %s not true" fmt, cond, ##__VA_ARGS__);  \
-            dump_stack();                                                                       \
-            on_uvm_assert();                                                                    \
-        }                                                                                       \
+#define _UVM_ASSERT_MSG(expr, cond, fmt, ...)                                                       \
+    do {                                                                                            \
+        if (unlikely(!(expr))) {                                                                    \
+            UVM_ERR_PRINT_ALWAYS("Assert failed, condition %s not true" fmt, cond, ##__VA_ARGS__);  \
+            dump_stack();                                                                           \
+            on_uvm_assert();                                                                        \
+        }                                                                                           \
     } while (0)
 
 // Prevent function calls in expr and the print argument list from being
@@ -166,7 +160,8 @@ void on_uvm_assert(void);
         UVM_NO_PRINT(fmt, ##__VA_ARGS__);       \
     } while (0)
 
-// UVM_ASSERT and UVM_ASSERT_MSG are only enabled on non-release and Coverity builds
+// UVM_ASSERT and UVM_ASSERT_MSG are only enabled on non-release and Coverity
+// builds.
 #if UVM_IS_DEBUG() || defined __COVERITY__
     #define UVM_ASSERT_MSG(expr, fmt, ...)  _UVM_ASSERT_MSG(expr, #expr, ": " fmt, ##__VA_ARGS__)
     #define UVM_ASSERT(expr)                _UVM_ASSERT_MSG(expr, #expr, "\n")
@@ -189,28 +184,26 @@ extern bool uvm_release_asserts_set_global_error_for_tests;
 // Given these are enabled for release builds, we need to be more cautious than
 // in UVM_ASSERT(). Use a ratelimited print and only dump the stack if a module
 // param is enabled.
-#define _UVM_ASSERT_MSG_RELEASE(expr, cond, fmt, ...)                                                   \
-    do {                                                                                                \
-        if (uvm_release_asserts && unlikely(!(expr))) {                                                 \
-            UVM_ASSERT_PRINT_RL("Assert failed, condition %s not true" fmt, cond, ##__VA_ARGS__);       \
-            if (uvm_release_asserts_set_global_error || uvm_release_asserts_set_global_error_for_tests) \
-                uvm_global_set_fatal_error(NV_ERR_INVALID_STATE);                                       \
-            if (uvm_release_asserts_dump_stack)                                                         \
-                dump_stack();                                                                           \
-            on_uvm_assert();                                                                            \
-        }                                                                                               \
+#define _UVM_ASSERT_MSG_RELEASE(expr, cond, fmt, ...)                                                       \
+    do {                                                                                                    \
+        if (uvm_release_asserts && unlikely(!(expr))) {                                                     \
+            UVM_ERR_PRINT_ALWAYS_RL("Assert failed, condition %s not true" fmt, cond, ##__VA_ARGS__);       \
+            if (uvm_release_asserts_set_global_error || uvm_release_asserts_set_global_error_for_tests)     \
+                uvm_global_set_fatal_error(NV_ERR_INVALID_STATE);                                           \
+            if (uvm_release_asserts_dump_stack)                                                             \
+                dump_stack();                                                                               \
+            on_uvm_assert();                                                                                \
+        }                                                                                                   \
     } while (0)
 
 #define UVM_ASSERT_MSG_RELEASE(expr, fmt, ...)  _UVM_ASSERT_MSG_RELEASE(expr, #expr, ": " fmt, ##__VA_ARGS__)
 #define UVM_ASSERT_RELEASE(expr)                _UVM_ASSERT_MSG_RELEASE(expr, #expr, "\n")
 
-// Provide a short form of UUID's, typically for use in debug printing:
-#define ABBREV_UUID(uuid) (unsigned)(uuid)
-
-static inline NvBool uvm_uuid_is_cpu(const NvProcessorUuid *uuid)
-{
-    return memcmp(uuid, &NV_PROCESSOR_UUID_CPU_DEFAULT, sizeof(*uuid)) == 0;
-}
+#define UVM_SIZE_1KB (1024ULL)
+#define UVM_SIZE_1MB (1024 * UVM_SIZE_1KB)
+#define UVM_SIZE_1GB (1024 * UVM_SIZE_1MB)
+#define UVM_SIZE_1TB (1024 * UVM_SIZE_1GB)
+#define UVM_SIZE_1PB (1024 * UVM_SIZE_1TB)
 
 #define UVM_ALIGN_DOWN(x, a) ({         \
         typeof(x) _a = a;               \
@@ -277,9 +270,6 @@ static inline void kmem_cache_destroy_safe(struct kmem_cache **ppCache)
     }
 }
 
-static const uid_t UVM_ROOT_UID = 0;
-
-
 typedef struct
 {
     NvU64 start_time_ns;
@@ -330,7 +320,6 @@ NV_STATUS errno_to_nv_status(int errnoCode);
 int nv_status_to_errno(NV_STATUS status);
 unsigned uvm_get_stale_process_id(void);
 unsigned uvm_get_stale_thread_id(void);
-NvBool uvm_user_id_security_check(uid_t euidTarget);
 
 extern int uvm_enable_builtin_tests;
 
@@ -346,6 +335,22 @@ typedef struct
     NvHandle user_client;
     NvHandle user_object;
 } uvm_rm_user_object_t;
+
+typedef enum
+{
+    UVM_FD_UNINITIALIZED,
+    UVM_FD_INITIALIZING,
+    UVM_FD_VA_SPACE,
+    UVM_FD_MM,
+    UVM_FD_COUNT
+} uvm_fd_type_t;
+
+// This should be large enough to fit the valid values from uvm_fd_type_t above.
+// Note we can't use order_base_2(UVM_FD_COUNT) to define this because our code
+// coverage tool fails due when the preprocessor expands that to a huge mess of
+// ternary operators.
+#define UVM_FD_TYPE_BITS 2
+#define UVM_FD_TYPE_MASK ((1UL << UVM_FD_TYPE_BITS) - 1)
 
 // Macro used to compare two values for types that support less than operator.
 // It returns -1 if a < b, 1 if a > b and 0 if a == 0
@@ -369,6 +374,14 @@ typedef struct
 // file. A NULL input returns false.
 bool uvm_file_is_nvidia_uvm(struct file *filp);
 
+// Returns the type of data filp->private_data contains to and if ptr_val !=
+// NULL returns the value of the pointer.
+uvm_fd_type_t uvm_fd_type(struct file *filp, void **ptr_val);
+
+// Returns the pointer stored in filp->private_data if the type
+// matches, otherwise returns NULL.
+void *uvm_fd_get_type(struct file *filp, uvm_fd_type_t type);
+
 // Reads the first word in the supplied struct page.
 static inline void uvm_touch_page(struct page *page)
 {
@@ -377,8 +390,49 @@ static inline void uvm_touch_page(struct page *page)
     UVM_ASSERT(page);
 
     mapping = (char *) kmap(page);
-    (void)UVM_READ_ONCE(*mapping);
+    (void)READ_ONCE(*mapping);
     kunmap(page);
 }
 
-#endif /* _UVM_COMMON_H */
+// Return true if the VMA is one used by UVM managed allocations.
+bool uvm_vma_is_managed(struct vm_area_struct *vma);
+
+static bool uvm_platform_uses_canonical_form_address(void)
+{
+    if (NVCPU_IS_PPC64LE)
+        return false;
+
+    return true;
+}
+
+// Similar to the GPU MMU HAL num_va_bits(), it returns the CPU's num_va_bits().
+static NvU32 uvm_cpu_num_va_bits(void)
+{
+    return fls64(TASK_SIZE - 1) + 1;
+}
+
+// Return the unaddressable range in a num_va_bits-wide VA space, [first, outer)
+static void uvm_get_unaddressable_range(NvU32 num_va_bits, NvU64 *first, NvU64 *outer)
+{
+    UVM_ASSERT(num_va_bits < 64);
+    UVM_ASSERT(first);
+    UVM_ASSERT(outer);
+
+    // Maxwell GPUs (num_va_bits == 40b) do not support canonical form address
+    // even when plugged into platforms using it.
+    if (uvm_platform_uses_canonical_form_address() && num_va_bits > 40) {
+        *first = 1ULL << (num_va_bits - 1);
+        *outer = (NvU64)((NvS64)(1ULL << 63) >> (64 - num_va_bits));
+    }
+    else {
+        *first = 1ULL << num_va_bits;
+        *outer = ~0Ull;
+    }
+}
+
+static void uvm_cpu_get_unaddressable_range(NvU64 *first, NvU64 *outer)
+{
+    return uvm_get_unaddressable_range(uvm_cpu_num_va_bits(), first, outer);
+}
+
+#endif /* __UVM_COMMON_H__ */

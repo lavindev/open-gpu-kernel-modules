@@ -1,13 +1,20 @@
+
 #ifndef _G_GPU_VASPACE_NVOC_H_
 #define _G_GPU_VASPACE_NVOC_H_
 #include "nvoc/runtime.h"
+
+// Version of generated metadata structures
+#ifdef NVOC_METADATA_VERSION
+#undef NVOC_METADATA_VERSION
+#endif
+#define NVOC_METADATA_VERSION 1
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2013-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2013-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -29,6 +36,7 @@ extern "C" {
  * DEALINGS IN THE SOFTWARE.
  */
 
+#pragma once
 #include "g_gpu_vaspace_nvoc.h"
 
 #ifndef GPU_VASPACE_H
@@ -54,7 +62,8 @@ extern "C" {
 MAKE_MAP(GVAS_CHANGRP_MAP, NvU32);
 typedef GVAS_CHANGRP_MAPIter GVAS_CHANGRP_MAP_ITER;
 
-typedef struct OBJGVASPACE *POBJGVASPACE;
+
+struct OBJGVASPACE;
 
 #ifndef __NVOC_CLASS_OBJGVASPACE_TYPEDEF__
 #define __NVOC_CLASS_OBJGVASPACE_TYPEDEF__
@@ -87,6 +96,9 @@ typedef struct KernelChannelGroup KernelChannelGroup;
 // On Linux, CUDA apps allocate VA in bottom 4GB and also above 8GB
 #define SPLIT_VAS_SERVER_RM_MANAGED_VA_START   0x100000000ULL  // 4GB
 #define SPLIT_VAS_SERVER_RM_MANAGED_VA_SIZE     0x20000000ULL  // 512MB
+
+// Size of Host RM managed VA space required when Full SRIOV or GSP-RM are enabled
+#define VA_SIZE_FULL_SRIOV_OR_GSP 0x20000000ULL  // 512MB
 
 /*!
  * Tracks ranges currently mapped (per-GPU).
@@ -207,49 +219,38 @@ struct MMU_WALK_USER_CTX
 /*!
  * RM-registered/managed GPU virtual address space.
  */
+
+// Private field names are wrapped in PRIVATE_FIELD, which does nothing for
+// the matching C source file, but causes diagnostics to be issued if another
+// source file references the field.
 #ifdef NVOC_GPU_VASPACE_H_PRIVATE_ACCESS_ALLOWED
 #define PRIVATE_FIELD(x) x
 #else
 #define PRIVATE_FIELD(x) NVOC_PRIVATE_FIELD(x)
 #endif
+
+
+// Metadata including vtable
+struct NVOC_VTABLE__OBJGVASPACE;
+
+
 struct OBJGVASPACE {
+
+    // Metadata
     const struct NVOC_RTTI *__nvoc_rtti;
+    const struct NVOC_VTABLE__OBJGVASPACE *__nvoc_vtable;
+
+    // Parent (i.e. superclass or base class) objects
     struct OBJVASPACE __nvoc_base_OBJVASPACE;
-    struct Object *__nvoc_pbase_Object;
-    struct OBJVASPACE *__nvoc_pbase_OBJVASPACE;
-    struct OBJGVASPACE *__nvoc_pbase_OBJGVASPACE;
-    NV_STATUS (*__gvaspaceConstruct___)(struct OBJGVASPACE *, NvU32, NvU32, NvU64, NvU64, NvU64, NvU64, NvU32);
-    NV_STATUS (*__gvaspaceReserveMempool__)(struct OBJGVASPACE *, struct OBJGPU *, NvHandle, NvU64, NvU64, NvU32);
-    NV_STATUS (*__gvaspaceAlloc__)(struct OBJGVASPACE *, NvU64, NvU64, NvU64, NvU64, NvU64, VAS_ALLOC_FLAGS, NvU64 *);
-    NV_STATUS (*__gvaspaceFree__)(struct OBJGVASPACE *, NvU64);
-    NV_STATUS (*__gvaspaceApplyDefaultAlignment__)(struct OBJGVASPACE *, const FB_ALLOC_INFO *, NvU64 *, NvU64 *, NvU64 *);
-    NV_STATUS (*__gvaspaceIncAllocRefCnt__)(struct OBJGVASPACE *, NvU64);
-    NV_STATUS (*__gvaspaceMap__)(struct OBJGVASPACE *, struct OBJGPU *, const NvU64, const NvU64, const MMU_MAP_TARGET *, const VAS_MAP_FLAGS);
-    void (*__gvaspaceUnmap__)(struct OBJGVASPACE *, struct OBJGPU *, const NvU64, const NvU64);
-    struct OBJEHEAP *(*__gvaspaceGetHeap__)(struct OBJGVASPACE *);
-    NvU32 (*__gvaspaceGetMapPageSize__)(struct OBJGVASPACE *, struct OBJGPU *, EMEMBLOCK *);
-    NvU32 (*__gvaspaceGetBigPageSize__)(struct OBJGVASPACE *);
-    NvU32 (*__gvaspaceGetFlags__)(struct OBJGVASPACE *);
-    NvBool (*__gvaspaceIsMirrored__)(struct OBJGVASPACE *);
-    NvBool (*__gvaspaceIsFaultCapable__)(struct OBJGVASPACE *);
-    NvBool (*__gvaspaceIsExternallyOwned__)(struct OBJGVASPACE *);
-    NvBool (*__gvaspaceIsAtsEnabled__)(struct OBJGVASPACE *);
-    NV_STATUS (*__gvaspaceGetPasid__)(struct OBJGVASPACE *, NvU32 *);
-    PMEMORY_DESCRIPTOR (*__gvaspaceGetPageDirBase__)(struct OBJGVASPACE *, struct OBJGPU *);
-    PMEMORY_DESCRIPTOR (*__gvaspaceGetKernelPageDirBase__)(struct OBJGVASPACE *, struct OBJGPU *);
-    NV_STATUS (*__gvaspacePinRootPageDir__)(struct OBJGVASPACE *, struct OBJGPU *);
-    void (*__gvaspaceUnpinRootPageDir__)(struct OBJGVASPACE *, struct OBJGPU *);
-    void (*__gvaspaceInvalidateTlb__)(struct OBJGVASPACE *, struct OBJGPU *, VAS_PTE_UPDATE_TYPE);
-    NV_STATUS (*__gvaspaceGetVasInfo__)(struct OBJGVASPACE *, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *);
-    NV_STATUS (*__gvaspaceGetPageTableInfo__)(struct OBJGVASPACE *, NV0080_CTRL_DMA_GET_PDE_INFO_PARAMS *);
-    NV_STATUS (*__gvaspaceGetPteInfo__)(struct OBJGVASPACE *, struct OBJGPU *, NV0080_CTRL_DMA_GET_PTE_INFO_PARAMS *, RmPhysAddr *);
-    NV_STATUS (*__gvaspaceSetPteInfo__)(struct OBJGVASPACE *, struct OBJGPU *, NV0080_CTRL_DMA_SET_PTE_INFO_PARAMS *);
-    NvBool (*__gvaspaceIsInternalVaRestricted__)(struct OBJGVASPACE *);
-    NvU64 (*__gvaspaceGetVaLimit__)(struct OBJGVASPACE *);
-    NvU64 (*__gvaspaceGetVaStart__)(struct OBJGVASPACE *);
-    struct OBJEHEAP *pHeap;
-    NvU32 bigPageSize;
-    NvU64 maxPageSizeSupported;
+
+    // Ancestor object pointers for `staticCast` feature
+    struct Object *__nvoc_pbase_Object;    // obj super^2
+    struct OBJVASPACE *__nvoc_pbase_OBJVASPACE;    // vaspace super
+    struct OBJGVASPACE *__nvoc_pbase_OBJGVASPACE;    // gvaspace
+
+    // Data members
+    OBJEHEAP *pHeap;
+    NvU64 bigPageSize;
     NvU64 compPageSize;
     NvU64 extManagedAlign;
     NvU32 flags;
@@ -273,6 +274,42 @@ struct OBJGVASPACE {
     RM_POOL_ALLOC_MEM_RESERVE_INFO *pPageTableMemPool;
 };
 
+
+// Metadata including vtable with 29 function pointers plus superclass metadata
+struct NVOC_VTABLE__OBJGVASPACE {
+    const struct NVOC_VTABLE__OBJVASPACE OBJVASPACE;    // (vaspace) 29 function pointers
+
+    NV_STATUS (*__gvaspaceConstruct___)(struct OBJGVASPACE * /*this*/, NvU32, NvU32, NvU64, NvU64, NvU64, NvU64, NvU32);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspaceReserveMempool__)(struct OBJGVASPACE * /*this*/, struct OBJGPU *, struct Device *, NvU64, NvU64, NvU32);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspaceAlloc__)(struct OBJGVASPACE * /*this*/, NvU64, NvU64, NvU64, NvU64, NvU64, VAS_ALLOC_FLAGS, NvU64 *);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspaceFree__)(struct OBJGVASPACE * /*this*/, NvU64);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspaceApplyDefaultAlignment__)(struct OBJGVASPACE * /*this*/, const FB_ALLOC_INFO *, NvU64 *, NvU64 *, NvU64 *);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspaceIncAllocRefCnt__)(struct OBJGVASPACE * /*this*/, NvU64);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspaceMap__)(struct OBJGVASPACE * /*this*/, struct OBJGPU *, const NvU64, const NvU64, const MMU_MAP_TARGET *, const VAS_MAP_FLAGS);  // virtual override (vaspace) base (vaspace)
+    void (*__gvaspaceUnmap__)(struct OBJGVASPACE * /*this*/, struct OBJGPU *, const NvU64, const NvU64);  // virtual override (vaspace) base (vaspace)
+    OBJEHEAP * (*__gvaspaceGetHeap__)(struct OBJGVASPACE * /*this*/);  // virtual override (vaspace) base (vaspace)
+    NvU64 (*__gvaspaceGetMapPageSize__)(struct OBJGVASPACE * /*this*/, struct OBJGPU *, EMEMBLOCK *);  // virtual override (vaspace) base (vaspace)
+    NvU64 (*__gvaspaceGetBigPageSize__)(struct OBJGVASPACE * /*this*/);  // virtual override (vaspace) base (vaspace)
+    NvU32 (*__gvaspaceGetFlags__)(struct OBJGVASPACE * /*this*/);  // virtual override (vaspace) base (vaspace)
+    NvBool (*__gvaspaceIsMirrored__)(struct OBJGVASPACE * /*this*/);  // virtual override (vaspace) base (vaspace)
+    NvBool (*__gvaspaceIsFaultCapable__)(struct OBJGVASPACE * /*this*/);  // virtual override (vaspace) base (vaspace)
+    NvBool (*__gvaspaceIsExternallyOwned__)(struct OBJGVASPACE * /*this*/);  // virtual override (vaspace) base (vaspace)
+    NvBool (*__gvaspaceIsAtsEnabled__)(struct OBJGVASPACE * /*this*/);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspaceGetPasid__)(struct OBJGVASPACE * /*this*/, NvU32 *);  // virtual override (vaspace) base (vaspace)
+    PMEMORY_DESCRIPTOR (*__gvaspaceGetPageDirBase__)(struct OBJGVASPACE * /*this*/, struct OBJGPU *);  // virtual override (vaspace) base (vaspace)
+    PMEMORY_DESCRIPTOR (*__gvaspaceGetKernelPageDirBase__)(struct OBJGVASPACE * /*this*/, struct OBJGPU *);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspacePinRootPageDir__)(struct OBJGVASPACE * /*this*/, struct OBJGPU *);  // virtual override (vaspace) base (vaspace)
+    void (*__gvaspaceUnpinRootPageDir__)(struct OBJGVASPACE * /*this*/, struct OBJGPU *);  // virtual override (vaspace) base (vaspace)
+    void (*__gvaspaceInvalidateTlb__)(struct OBJGVASPACE * /*this*/, struct OBJGPU *, VAS_PTE_UPDATE_TYPE);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspaceGetVasInfo__)(struct OBJGVASPACE * /*this*/, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspaceGetPageTableInfo__)(struct OBJGVASPACE * /*this*/, NV0080_CTRL_DMA_GET_PDE_INFO_PARAMS *);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspaceGetPteInfo__)(struct OBJGVASPACE * /*this*/, struct OBJGPU *, NV0080_CTRL_DMA_GET_PTE_INFO_PARAMS *, RmPhysAddr *);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspaceSetPteInfo__)(struct OBJGVASPACE * /*this*/, struct OBJGPU *, NV0080_CTRL_DMA_SET_PTE_INFO_PARAMS *);  // virtual override (vaspace) base (vaspace)
+    NV_STATUS (*__gvaspaceFreeV2__)(struct OBJGVASPACE * /*this*/, NvU64, NvU64 *);  // virtual override (vaspace) base (vaspace)
+    NvU64 (*__gvaspaceGetVaStart__)(struct OBJGVASPACE * /*this*/);  // virtual inherited (vaspace) base (vaspace)
+    NvU64 (*__gvaspaceGetVaLimit__)(struct OBJGVASPACE * /*this*/);  // virtual inherited (vaspace) base (vaspace)
+};
+
 #ifndef __NVOC_CLASS_OBJGVASPACE_TYPEDEF__
 #define __NVOC_CLASS_OBJGVASPACE_TYPEDEF__
 typedef struct OBJGVASPACE OBJGVASPACE;
@@ -282,6 +319,7 @@ typedef struct OBJGVASPACE OBJGVASPACE;
 #define __nvoc_class_id_OBJGVASPACE 0xba5875
 #endif /* __nvoc_class_id_OBJGVASPACE */
 
+// Casting support
 extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJGVASPACE;
 
 #define __staticCast_OBJGVASPACE(pThis) \
@@ -294,211 +332,243 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJGVASPACE;
     ((OBJGVASPACE*)__nvoc_dynamicCast(staticCast((pThis), Dynamic), classInfo(OBJGVASPACE)))
 #endif //__nvoc_gpu_vaspace_h_disabled
 
-
 NV_STATUS __nvoc_objCreateDynamic_OBJGVASPACE(OBJGVASPACE**, Dynamic*, NvU32, va_list);
 
 NV_STATUS __nvoc_objCreate_OBJGVASPACE(OBJGVASPACE**, Dynamic*, NvU32);
 #define __objCreate_OBJGVASPACE(ppNewObj, pParent, createFlags) \
     __nvoc_objCreate_OBJGVASPACE((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
 
+
+// Wrapper macros
+#define gvaspaceConstruct__FNPTR(pGVAS) pGVAS->__nvoc_vtable->__gvaspaceConstruct___
 #define gvaspaceConstruct_(pGVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags) gvaspaceConstruct__DISPATCH(pGVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags)
-#define gvaspaceReserveMempool(pGVAS, pGpu, hClient, size, pageSizeLockMask, flags) gvaspaceReserveMempool_DISPATCH(pGVAS, pGpu, hClient, size, pageSizeLockMask, flags)
+#define gvaspaceReserveMempool_FNPTR(pGVAS) pGVAS->__nvoc_vtable->__gvaspaceReserveMempool__
+#define gvaspaceReserveMempool(pGVAS, pGpu, pDevice, size, pageSizeLockMask, flags) gvaspaceReserveMempool_DISPATCH(pGVAS, pGpu, pDevice, size, pageSizeLockMask, flags)
+#define gvaspaceAlloc_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceAlloc__
 #define gvaspaceAlloc(pVAS, size, align, rangeLo, rangeHi, pageSizeLockMask, flags, pAddr) gvaspaceAlloc_DISPATCH(pVAS, size, align, rangeLo, rangeHi, pageSizeLockMask, flags, pAddr)
+#define gvaspaceFree_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceFree__
 #define gvaspaceFree(pVAS, vAddr) gvaspaceFree_DISPATCH(pVAS, vAddr)
+#define gvaspaceApplyDefaultAlignment_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceApplyDefaultAlignment__
 #define gvaspaceApplyDefaultAlignment(pVAS, pAllocInfo, pAlign, pSize, pPageSizeLockMask) gvaspaceApplyDefaultAlignment_DISPATCH(pVAS, pAllocInfo, pAlign, pSize, pPageSizeLockMask)
+#define gvaspaceIncAllocRefCnt_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceIncAllocRefCnt__
 #define gvaspaceIncAllocRefCnt(pVAS, vAddr) gvaspaceIncAllocRefCnt_DISPATCH(pVAS, vAddr)
+#define gvaspaceMap_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceMap__
 #define gvaspaceMap(pVAS, pGpu, vaLo, vaHi, pTarget, flags) gvaspaceMap_DISPATCH(pVAS, pGpu, vaLo, vaHi, pTarget, flags)
+#define gvaspaceUnmap_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceUnmap__
 #define gvaspaceUnmap(pVAS, pGpu, vaLo, vaHi) gvaspaceUnmap_DISPATCH(pVAS, pGpu, vaLo, vaHi)
+#define gvaspaceGetHeap_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceGetHeap__
 #define gvaspaceGetHeap(pVAS) gvaspaceGetHeap_DISPATCH(pVAS)
+#define gvaspaceGetMapPageSize_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceGetMapPageSize__
 #define gvaspaceGetMapPageSize(pVAS, pGpu, pMemBlock) gvaspaceGetMapPageSize_DISPATCH(pVAS, pGpu, pMemBlock)
+#define gvaspaceGetBigPageSize_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceGetBigPageSize__
 #define gvaspaceGetBigPageSize(pVAS) gvaspaceGetBigPageSize_DISPATCH(pVAS)
+#define gvaspaceGetFlags_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceGetFlags__
 #define gvaspaceGetFlags(pVAS) gvaspaceGetFlags_DISPATCH(pVAS)
+#define gvaspaceIsMirrored_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceIsMirrored__
 #define gvaspaceIsMirrored(pVAS) gvaspaceIsMirrored_DISPATCH(pVAS)
+#define gvaspaceIsFaultCapable_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceIsFaultCapable__
 #define gvaspaceIsFaultCapable(pVAS) gvaspaceIsFaultCapable_DISPATCH(pVAS)
+#define gvaspaceIsExternallyOwned_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceIsExternallyOwned__
 #define gvaspaceIsExternallyOwned(pVAS) gvaspaceIsExternallyOwned_DISPATCH(pVAS)
+#define gvaspaceIsAtsEnabled_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceIsAtsEnabled__
 #define gvaspaceIsAtsEnabled(pVAS) gvaspaceIsAtsEnabled_DISPATCH(pVAS)
+#define gvaspaceGetPasid_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceGetPasid__
 #define gvaspaceGetPasid(pVAS, pPasid) gvaspaceGetPasid_DISPATCH(pVAS, pPasid)
+#define gvaspaceGetPageDirBase_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceGetPageDirBase__
 #define gvaspaceGetPageDirBase(pVAS, pGpu) gvaspaceGetPageDirBase_DISPATCH(pVAS, pGpu)
+#define gvaspaceGetKernelPageDirBase_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceGetKernelPageDirBase__
 #define gvaspaceGetKernelPageDirBase(pVAS, pGpu) gvaspaceGetKernelPageDirBase_DISPATCH(pVAS, pGpu)
+#define gvaspacePinRootPageDir_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspacePinRootPageDir__
 #define gvaspacePinRootPageDir(pVAS, pGpu) gvaspacePinRootPageDir_DISPATCH(pVAS, pGpu)
+#define gvaspaceUnpinRootPageDir_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceUnpinRootPageDir__
 #define gvaspaceUnpinRootPageDir(pVAS, pGpu) gvaspaceUnpinRootPageDir_DISPATCH(pVAS, pGpu)
+#define gvaspaceInvalidateTlb_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceInvalidateTlb__
 #define gvaspaceInvalidateTlb(pVAS, pGpu, type) gvaspaceInvalidateTlb_DISPATCH(pVAS, pGpu, type)
+#define gvaspaceGetVasInfo_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceGetVasInfo__
 #define gvaspaceGetVasInfo(pVAS, pParams) gvaspaceGetVasInfo_DISPATCH(pVAS, pParams)
+#define gvaspaceGetPageTableInfo_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceGetPageTableInfo__
 #define gvaspaceGetPageTableInfo(pVAS, pParams) gvaspaceGetPageTableInfo_DISPATCH(pVAS, pParams)
+#define gvaspaceGetPteInfo_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceGetPteInfo__
 #define gvaspaceGetPteInfo(pVAS, pGpu, pParams, pPhysAddr) gvaspaceGetPteInfo_DISPATCH(pVAS, pGpu, pParams, pPhysAddr)
+#define gvaspaceSetPteInfo_FNPTR(pVAS) pVAS->__nvoc_vtable->__gvaspaceSetPteInfo__
 #define gvaspaceSetPteInfo(pVAS, pGpu, pParams) gvaspaceSetPteInfo_DISPATCH(pVAS, pGpu, pParams)
-#define gvaspaceIsInternalVaRestricted(pGVAS) gvaspaceIsInternalVaRestricted_DISPATCH(pGVAS)
-#define gvaspaceGetVaLimit(pVAS) gvaspaceGetVaLimit_DISPATCH(pVAS)
+#define gvaspaceFreeV2_FNPTR(pGVAS) pGVAS->__nvoc_vtable->__gvaspaceFreeV2__
+#define gvaspaceFreeV2(pGVAS, vAddr, pSize) gvaspaceFreeV2_DISPATCH(pGVAS, vAddr, pSize)
+#define gvaspaceGetVaStart_FNPTR(pVAS) pVAS->__nvoc_base_OBJVASPACE.__nvoc_vtable->__vaspaceGetVaStart__
 #define gvaspaceGetVaStart(pVAS) gvaspaceGetVaStart_DISPATCH(pVAS)
-NV_STATUS gvaspaceConstruct__IMPL(struct OBJGVASPACE *pGVAS, NvU32 classId, NvU32 vaspaceId, NvU64 vaStart, NvU64 vaLimit, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 flags);
+#define gvaspaceGetVaLimit_FNPTR(pVAS) pVAS->__nvoc_base_OBJVASPACE.__nvoc_vtable->__vaspaceGetVaLimit__
+#define gvaspaceGetVaLimit(pVAS) gvaspaceGetVaLimit_DISPATCH(pVAS)
 
+// Dispatch functions
 static inline NV_STATUS gvaspaceConstruct__DISPATCH(struct OBJGVASPACE *pGVAS, NvU32 classId, NvU32 vaspaceId, NvU64 vaStart, NvU64 vaLimit, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 flags) {
-    return pGVAS->__gvaspaceConstruct___(pGVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags);
+    return pGVAS->__nvoc_vtable->__gvaspaceConstruct___(pGVAS, classId, vaspaceId, vaStart, vaLimit, vaStartInternal, vaLimitInternal, flags);
 }
 
-NV_STATUS gvaspaceReserveMempool_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, NvHandle hClient, NvU64 size, NvU64 pageSizeLockMask, NvU32 flags);
-
-static inline NV_STATUS gvaspaceReserveMempool_DISPATCH(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, NvHandle hClient, NvU64 size, NvU64 pageSizeLockMask, NvU32 flags) {
-    return pGVAS->__gvaspaceReserveMempool__(pGVAS, pGpu, hClient, size, pageSizeLockMask, flags);
+static inline NV_STATUS gvaspaceReserveMempool_DISPATCH(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, struct Device *pDevice, NvU64 size, NvU64 pageSizeLockMask, NvU32 flags) {
+    return pGVAS->__nvoc_vtable->__gvaspaceReserveMempool__(pGVAS, pGpu, pDevice, size, pageSizeLockMask, flags);
 }
-
-NV_STATUS gvaspaceAlloc_IMPL(struct OBJGVASPACE *pVAS, NvU64 size, NvU64 align, NvU64 rangeLo, NvU64 rangeHi, NvU64 pageSizeLockMask, VAS_ALLOC_FLAGS flags, NvU64 *pAddr);
 
 static inline NV_STATUS gvaspaceAlloc_DISPATCH(struct OBJGVASPACE *pVAS, NvU64 size, NvU64 align, NvU64 rangeLo, NvU64 rangeHi, NvU64 pageSizeLockMask, VAS_ALLOC_FLAGS flags, NvU64 *pAddr) {
-    return pVAS->__gvaspaceAlloc__(pVAS, size, align, rangeLo, rangeHi, pageSizeLockMask, flags, pAddr);
+    return pVAS->__nvoc_vtable->__gvaspaceAlloc__(pVAS, size, align, rangeLo, rangeHi, pageSizeLockMask, flags, pAddr);
 }
-
-NV_STATUS gvaspaceFree_IMPL(struct OBJGVASPACE *pVAS, NvU64 vAddr);
 
 static inline NV_STATUS gvaspaceFree_DISPATCH(struct OBJGVASPACE *pVAS, NvU64 vAddr) {
-    return pVAS->__gvaspaceFree__(pVAS, vAddr);
+    return pVAS->__nvoc_vtable->__gvaspaceFree__(pVAS, vAddr);
 }
-
-NV_STATUS gvaspaceApplyDefaultAlignment_IMPL(struct OBJGVASPACE *pVAS, const FB_ALLOC_INFO *pAllocInfo, NvU64 *pAlign, NvU64 *pSize, NvU64 *pPageSizeLockMask);
 
 static inline NV_STATUS gvaspaceApplyDefaultAlignment_DISPATCH(struct OBJGVASPACE *pVAS, const FB_ALLOC_INFO *pAllocInfo, NvU64 *pAlign, NvU64 *pSize, NvU64 *pPageSizeLockMask) {
-    return pVAS->__gvaspaceApplyDefaultAlignment__(pVAS, pAllocInfo, pAlign, pSize, pPageSizeLockMask);
+    return pVAS->__nvoc_vtable->__gvaspaceApplyDefaultAlignment__(pVAS, pAllocInfo, pAlign, pSize, pPageSizeLockMask);
 }
-
-NV_STATUS gvaspaceIncAllocRefCnt_IMPL(struct OBJGVASPACE *pVAS, NvU64 vAddr);
 
 static inline NV_STATUS gvaspaceIncAllocRefCnt_DISPATCH(struct OBJGVASPACE *pVAS, NvU64 vAddr) {
-    return pVAS->__gvaspaceIncAllocRefCnt__(pVAS, vAddr);
+    return pVAS->__nvoc_vtable->__gvaspaceIncAllocRefCnt__(pVAS, vAddr);
 }
-
-NV_STATUS gvaspaceMap_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi, const MMU_MAP_TARGET *pTarget, const VAS_MAP_FLAGS flags);
 
 static inline NV_STATUS gvaspaceMap_DISPATCH(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi, const MMU_MAP_TARGET *pTarget, const VAS_MAP_FLAGS flags) {
-    return pVAS->__gvaspaceMap__(pVAS, pGpu, vaLo, vaHi, pTarget, flags);
+    return pVAS->__nvoc_vtable->__gvaspaceMap__(pVAS, pGpu, vaLo, vaHi, pTarget, flags);
 }
-
-void gvaspaceUnmap_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi);
 
 static inline void gvaspaceUnmap_DISPATCH(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi) {
-    pVAS->__gvaspaceUnmap__(pVAS, pGpu, vaLo, vaHi);
+    pVAS->__nvoc_vtable->__gvaspaceUnmap__(pVAS, pGpu, vaLo, vaHi);
 }
 
-struct OBJEHEAP *gvaspaceGetHeap_IMPL(struct OBJGVASPACE *pVAS);
-
-static inline struct OBJEHEAP *gvaspaceGetHeap_DISPATCH(struct OBJGVASPACE *pVAS) {
-    return pVAS->__gvaspaceGetHeap__(pVAS);
+static inline OBJEHEAP * gvaspaceGetHeap_DISPATCH(struct OBJGVASPACE *pVAS) {
+    return pVAS->__nvoc_vtable->__gvaspaceGetHeap__(pVAS);
 }
 
-NvU32 gvaspaceGetMapPageSize_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, EMEMBLOCK *pMemBlock);
-
-static inline NvU32 gvaspaceGetMapPageSize_DISPATCH(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, EMEMBLOCK *pMemBlock) {
-    return pVAS->__gvaspaceGetMapPageSize__(pVAS, pGpu, pMemBlock);
+static inline NvU64 gvaspaceGetMapPageSize_DISPATCH(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, EMEMBLOCK *pMemBlock) {
+    return pVAS->__nvoc_vtable->__gvaspaceGetMapPageSize__(pVAS, pGpu, pMemBlock);
 }
 
-NvU32 gvaspaceGetBigPageSize_IMPL(struct OBJGVASPACE *pVAS);
-
-static inline NvU32 gvaspaceGetBigPageSize_DISPATCH(struct OBJGVASPACE *pVAS) {
-    return pVAS->__gvaspaceGetBigPageSize__(pVAS);
+static inline NvU64 gvaspaceGetBigPageSize_DISPATCH(struct OBJGVASPACE *pVAS) {
+    return pVAS->__nvoc_vtable->__gvaspaceGetBigPageSize__(pVAS);
 }
-
-NvU32 gvaspaceGetFlags_IMPL(struct OBJGVASPACE *pVAS);
 
 static inline NvU32 gvaspaceGetFlags_DISPATCH(struct OBJGVASPACE *pVAS) {
-    return pVAS->__gvaspaceGetFlags__(pVAS);
+    return pVAS->__nvoc_vtable->__gvaspaceGetFlags__(pVAS);
 }
-
-NvBool gvaspaceIsMirrored_IMPL(struct OBJGVASPACE *pVAS);
 
 static inline NvBool gvaspaceIsMirrored_DISPATCH(struct OBJGVASPACE *pVAS) {
-    return pVAS->__gvaspaceIsMirrored__(pVAS);
+    return pVAS->__nvoc_vtable->__gvaspaceIsMirrored__(pVAS);
 }
-
-NvBool gvaspaceIsFaultCapable_IMPL(struct OBJGVASPACE *pVAS);
 
 static inline NvBool gvaspaceIsFaultCapable_DISPATCH(struct OBJGVASPACE *pVAS) {
-    return pVAS->__gvaspaceIsFaultCapable__(pVAS);
+    return pVAS->__nvoc_vtable->__gvaspaceIsFaultCapable__(pVAS);
 }
-
-NvBool gvaspaceIsExternallyOwned_IMPL(struct OBJGVASPACE *pVAS);
 
 static inline NvBool gvaspaceIsExternallyOwned_DISPATCH(struct OBJGVASPACE *pVAS) {
-    return pVAS->__gvaspaceIsExternallyOwned__(pVAS);
+    return pVAS->__nvoc_vtable->__gvaspaceIsExternallyOwned__(pVAS);
 }
-
-NvBool gvaspaceIsAtsEnabled_IMPL(struct OBJGVASPACE *pVAS);
 
 static inline NvBool gvaspaceIsAtsEnabled_DISPATCH(struct OBJGVASPACE *pVAS) {
-    return pVAS->__gvaspaceIsAtsEnabled__(pVAS);
+    return pVAS->__nvoc_vtable->__gvaspaceIsAtsEnabled__(pVAS);
 }
-
-NV_STATUS gvaspaceGetPasid_IMPL(struct OBJGVASPACE *pVAS, NvU32 *pPasid);
 
 static inline NV_STATUS gvaspaceGetPasid_DISPATCH(struct OBJGVASPACE *pVAS, NvU32 *pPasid) {
-    return pVAS->__gvaspaceGetPasid__(pVAS, pPasid);
+    return pVAS->__nvoc_vtable->__gvaspaceGetPasid__(pVAS, pPasid);
 }
-
-PMEMORY_DESCRIPTOR gvaspaceGetPageDirBase_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu);
 
 static inline PMEMORY_DESCRIPTOR gvaspaceGetPageDirBase_DISPATCH(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu) {
-    return pVAS->__gvaspaceGetPageDirBase__(pVAS, pGpu);
+    return pVAS->__nvoc_vtable->__gvaspaceGetPageDirBase__(pVAS, pGpu);
 }
-
-PMEMORY_DESCRIPTOR gvaspaceGetKernelPageDirBase_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu);
 
 static inline PMEMORY_DESCRIPTOR gvaspaceGetKernelPageDirBase_DISPATCH(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu) {
-    return pVAS->__gvaspaceGetKernelPageDirBase__(pVAS, pGpu);
+    return pVAS->__nvoc_vtable->__gvaspaceGetKernelPageDirBase__(pVAS, pGpu);
 }
-
-NV_STATUS gvaspacePinRootPageDir_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu);
 
 static inline NV_STATUS gvaspacePinRootPageDir_DISPATCH(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu) {
-    return pVAS->__gvaspacePinRootPageDir__(pVAS, pGpu);
+    return pVAS->__nvoc_vtable->__gvaspacePinRootPageDir__(pVAS, pGpu);
 }
-
-void gvaspaceUnpinRootPageDir_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu);
 
 static inline void gvaspaceUnpinRootPageDir_DISPATCH(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu) {
-    pVAS->__gvaspaceUnpinRootPageDir__(pVAS, pGpu);
+    pVAS->__nvoc_vtable->__gvaspaceUnpinRootPageDir__(pVAS, pGpu);
 }
-
-void gvaspaceInvalidateTlb_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, VAS_PTE_UPDATE_TYPE type);
 
 static inline void gvaspaceInvalidateTlb_DISPATCH(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, VAS_PTE_UPDATE_TYPE type) {
-    pVAS->__gvaspaceInvalidateTlb__(pVAS, pGpu, type);
+    pVAS->__nvoc_vtable->__gvaspaceInvalidateTlb__(pVAS, pGpu, type);
 }
-
-NV_STATUS gvaspaceGetVasInfo_IMPL(struct OBJGVASPACE *pVAS, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *pParams);
 
 static inline NV_STATUS gvaspaceGetVasInfo_DISPATCH(struct OBJGVASPACE *pVAS, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *pParams) {
-    return pVAS->__gvaspaceGetVasInfo__(pVAS, pParams);
+    return pVAS->__nvoc_vtable->__gvaspaceGetVasInfo__(pVAS, pParams);
 }
-
-NV_STATUS gvaspaceGetPageTableInfo_IMPL(struct OBJGVASPACE *pVAS, NV0080_CTRL_DMA_GET_PDE_INFO_PARAMS *pParams);
 
 static inline NV_STATUS gvaspaceGetPageTableInfo_DISPATCH(struct OBJGVASPACE *pVAS, NV0080_CTRL_DMA_GET_PDE_INFO_PARAMS *pParams) {
-    return pVAS->__gvaspaceGetPageTableInfo__(pVAS, pParams);
+    return pVAS->__nvoc_vtable->__gvaspaceGetPageTableInfo__(pVAS, pParams);
 }
-
-NV_STATUS gvaspaceGetPteInfo_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_GET_PTE_INFO_PARAMS *pParams, RmPhysAddr *pPhysAddr);
 
 static inline NV_STATUS gvaspaceGetPteInfo_DISPATCH(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_GET_PTE_INFO_PARAMS *pParams, RmPhysAddr *pPhysAddr) {
-    return pVAS->__gvaspaceGetPteInfo__(pVAS, pGpu, pParams, pPhysAddr);
+    return pVAS->__nvoc_vtable->__gvaspaceGetPteInfo__(pVAS, pGpu, pParams, pPhysAddr);
 }
-
-NV_STATUS gvaspaceSetPteInfo_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_SET_PTE_INFO_PARAMS *pParams);
 
 static inline NV_STATUS gvaspaceSetPteInfo_DISPATCH(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_SET_PTE_INFO_PARAMS *pParams) {
-    return pVAS->__gvaspaceSetPteInfo__(pVAS, pGpu, pParams);
+    return pVAS->__nvoc_vtable->__gvaspaceSetPteInfo__(pVAS, pGpu, pParams);
 }
 
-NvBool gvaspaceIsInternalVaRestricted_IMPL(struct OBJGVASPACE *pGVAS);
-
-static inline NvBool gvaspaceIsInternalVaRestricted_DISPATCH(struct OBJGVASPACE *pGVAS) {
-    return pGVAS->__gvaspaceIsInternalVaRestricted__(pGVAS);
-}
-
-static inline NvU64 gvaspaceGetVaLimit_DISPATCH(struct OBJGVASPACE *pVAS) {
-    return pVAS->__gvaspaceGetVaLimit__(pVAS);
+static inline NV_STATUS gvaspaceFreeV2_DISPATCH(struct OBJGVASPACE *pGVAS, NvU64 vAddr, NvU64 *pSize) {
+    return pGVAS->__nvoc_vtable->__gvaspaceFreeV2__(pGVAS, vAddr, pSize);
 }
 
 static inline NvU64 gvaspaceGetVaStart_DISPATCH(struct OBJGVASPACE *pVAS) {
-    return pVAS->__gvaspaceGetVaStart__(pVAS);
+    return pVAS->__nvoc_vtable->__gvaspaceGetVaStart__(pVAS);
 }
+
+static inline NvU64 gvaspaceGetVaLimit_DISPATCH(struct OBJGVASPACE *pVAS) {
+    return pVAS->__nvoc_vtable->__gvaspaceGetVaLimit__(pVAS);
+}
+
+NV_STATUS gvaspaceConstruct__IMPL(struct OBJGVASPACE *pGVAS, NvU32 classId, NvU32 vaspaceId, NvU64 vaStart, NvU64 vaLimit, NvU64 vaStartInternal, NvU64 vaLimitInternal, NvU32 flags);
+
+NV_STATUS gvaspaceReserveMempool_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, struct Device *pDevice, NvU64 size, NvU64 pageSizeLockMask, NvU32 flags);
+
+NV_STATUS gvaspaceAlloc_IMPL(struct OBJGVASPACE *pVAS, NvU64 size, NvU64 align, NvU64 rangeLo, NvU64 rangeHi, NvU64 pageSizeLockMask, VAS_ALLOC_FLAGS flags, NvU64 *pAddr);
+
+NV_STATUS gvaspaceFree_IMPL(struct OBJGVASPACE *pVAS, NvU64 vAddr);
+
+NV_STATUS gvaspaceApplyDefaultAlignment_IMPL(struct OBJGVASPACE *pVAS, const FB_ALLOC_INFO *pAllocInfo, NvU64 *pAlign, NvU64 *pSize, NvU64 *pPageSizeLockMask);
+
+NV_STATUS gvaspaceIncAllocRefCnt_IMPL(struct OBJGVASPACE *pVAS, NvU64 vAddr);
+
+NV_STATUS gvaspaceMap_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi, const MMU_MAP_TARGET *pTarget, const VAS_MAP_FLAGS flags);
+
+void gvaspaceUnmap_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi);
+
+OBJEHEAP *gvaspaceGetHeap_IMPL(struct OBJGVASPACE *pVAS);
+
+NvU64 gvaspaceGetMapPageSize_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, EMEMBLOCK *pMemBlock);
+
+NvU64 gvaspaceGetBigPageSize_IMPL(struct OBJGVASPACE *pVAS);
+
+NvU32 gvaspaceGetFlags_IMPL(struct OBJGVASPACE *pVAS);
+
+NvBool gvaspaceIsMirrored_IMPL(struct OBJGVASPACE *pVAS);
+
+NvBool gvaspaceIsFaultCapable_IMPL(struct OBJGVASPACE *pVAS);
+
+NvBool gvaspaceIsExternallyOwned_IMPL(struct OBJGVASPACE *pVAS);
+
+NvBool gvaspaceIsAtsEnabled_IMPL(struct OBJGVASPACE *pVAS);
+
+NV_STATUS gvaspaceGetPasid_IMPL(struct OBJGVASPACE *pVAS, NvU32 *pPasid);
+
+PMEMORY_DESCRIPTOR gvaspaceGetPageDirBase_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu);
+
+PMEMORY_DESCRIPTOR gvaspaceGetKernelPageDirBase_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu);
+
+NV_STATUS gvaspacePinRootPageDir_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu);
+
+void gvaspaceUnpinRootPageDir_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu);
+
+void gvaspaceInvalidateTlb_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, VAS_PTE_UPDATE_TYPE type);
+
+NV_STATUS gvaspaceGetVasInfo_IMPL(struct OBJGVASPACE *pVAS, NV0080_CTRL_DMA_ADV_SCHED_GET_VA_CAPS_PARAMS *pParams);
+
+NV_STATUS gvaspaceGetPageTableInfo_IMPL(struct OBJGVASPACE *pVAS, NV0080_CTRL_DMA_GET_PDE_INFO_PARAMS *pParams);
+
+NV_STATUS gvaspaceGetPteInfo_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_GET_PTE_INFO_PARAMS *pParams, RmPhysAddr *pPhysAddr);
+
+NV_STATUS gvaspaceSetPteInfo_IMPL(struct OBJGVASPACE *pVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_SET_PTE_INFO_PARAMS *pParams);
+
+NV_STATUS gvaspaceFreeV2_IMPL(struct OBJGVASPACE *pGVAS, NvU64 vAddr, NvU64 *pSize);
 
 static inline NvU32 gvaspaceGetReservedVaspaceBase(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu) {
     if (!((0) && (pGpu))) {
@@ -508,8 +578,10 @@ static inline NvU32 gvaspaceGetReservedVaspaceBase(struct OBJGVASPACE *pGVAS, st
 }
 
 void gvaspaceDestruct_IMPL(struct OBJGVASPACE *pGVAS);
+
 #define __nvoc_gvaspaceDestruct(pGVAS) gvaspaceDestruct_IMPL(pGVAS)
 NV_STATUS gvaspaceExternalRootDirCommit_IMPL(struct OBJGVASPACE *pGVAS, NvHandle hClient, struct OBJGPU *pGpu, NV0080_CTRL_DMA_SET_PAGE_DIRECTORY_PARAMS *pParams);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceExternalRootDirCommit(struct OBJGVASPACE *pGVAS, NvHandle hClient, struct OBJGPU *pGpu, NV0080_CTRL_DMA_SET_PAGE_DIRECTORY_PARAMS *pParams) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -520,6 +592,7 @@ static inline NV_STATUS gvaspaceExternalRootDirCommit(struct OBJGVASPACE *pGVAS,
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NV_STATUS gvaspaceExternalRootDirRevoke_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_UNSET_PAGE_DIRECTORY_PARAMS *pParams);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceExternalRootDirRevoke(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_UNSET_PAGE_DIRECTORY_PARAMS *pParams) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -530,6 +603,7 @@ static inline NV_STATUS gvaspaceExternalRootDirRevoke(struct OBJGVASPACE *pGVAS,
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NV_STATUS gvaspaceResize_IMPL(struct OBJGVASPACE *pGVAS, NV0080_CTRL_DMA_SET_VA_SPACE_SIZE_PARAMS *pParams);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceResize(struct OBJGVASPACE *pGVAS, NV0080_CTRL_DMA_SET_VA_SPACE_SIZE_PARAMS *pParams) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -540,6 +614,7 @@ static inline NV_STATUS gvaspaceResize(struct OBJGVASPACE *pGVAS, NV0080_CTRL_DM
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NV_STATUS gvaspaceUpdatePde2_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_UPDATE_PDE_2_PARAMS *pParams);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceUpdatePde2(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, NV0080_CTRL_DMA_UPDATE_PDE_2_PARAMS *pParams) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -550,6 +625,7 @@ static inline NV_STATUS gvaspaceUpdatePde2(struct OBJGVASPACE *pGVAS, struct OBJ
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 const struct GMMU_FMT *gvaspaceGetGmmuFmt_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline const struct GMMU_FMT *gvaspaceGetGmmuFmt(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -560,6 +636,7 @@ static inline const struct GMMU_FMT *gvaspaceGetGmmuFmt(struct OBJGVASPACE *pGVA
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 GVAS_GPU_STATE *gvaspaceGetGpuState_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline GVAS_GPU_STATE *gvaspaceGetGpuState(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -569,16 +646,19 @@ static inline GVAS_GPU_STATE *gvaspaceGetGpuState(struct OBJGVASPACE *pGVAS, str
 #define gvaspaceGetGpuState(pGVAS, pGpu) gvaspaceGetGpuState_IMPL(pGVAS, pGpu)
 #endif //__nvoc_gpu_vaspace_h_disabled
 
-void gvaspaceWalkUserCtxAcquire_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, const GVAS_BLOCK *pVASBlock, struct MMU_WALK_USER_CTX *pUserCtx);
+NV_STATUS gvaspaceWalkUserCtxAcquire_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, const GVAS_BLOCK *pVASBlock, struct MMU_WALK_USER_CTX *pUserCtx);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
-static inline void gvaspaceWalkUserCtxAcquire(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, const GVAS_BLOCK *pVASBlock, struct MMU_WALK_USER_CTX *pUserCtx) {
+static inline NV_STATUS gvaspaceWalkUserCtxAcquire(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, const GVAS_BLOCK *pVASBlock, struct MMU_WALK_USER_CTX *pUserCtx) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
+    return NV_ERR_NOT_SUPPORTED;
 }
 #else //__nvoc_gpu_vaspace_h_disabled
 #define gvaspaceWalkUserCtxAcquire(pGVAS, pGpu, pVASBlock, pUserCtx) gvaspaceWalkUserCtxAcquire_IMPL(pGVAS, pGpu, pVASBlock, pUserCtx)
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 void gvaspaceWalkUserCtxRelease_IMPL(struct OBJGVASPACE *pGVAS, struct MMU_WALK_USER_CTX *pUserCtx);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline void gvaspaceWalkUserCtxRelease(struct OBJGVASPACE *pGVAS, struct MMU_WALK_USER_CTX *pUserCtx) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -588,6 +668,7 @@ static inline void gvaspaceWalkUserCtxRelease(struct OBJGVASPACE *pGVAS, struct 
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NV_STATUS gvaspaceIncChanGrpRefCnt_IMPL(struct OBJGVASPACE *pGVAS, KernelChannelGroup *pKernelChannelGroup);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceIncChanGrpRefCnt(struct OBJGVASPACE *pGVAS, KernelChannelGroup *pKernelChannelGroup) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -598,6 +679,7 @@ static inline NV_STATUS gvaspaceIncChanGrpRefCnt(struct OBJGVASPACE *pGVAS, Kern
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NV_STATUS gvaspaceDecChanGrpRefCnt_IMPL(struct OBJGVASPACE *pGVAS, KernelChannelGroup *pKernelChannelGroup);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceDecChanGrpRefCnt(struct OBJGVASPACE *pGVAS, KernelChannelGroup *pKernelChannelGroup) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -608,6 +690,7 @@ static inline NV_STATUS gvaspaceDecChanGrpRefCnt(struct OBJGVASPACE *pGVAS, Kern
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NvU32 gvaspaceGetChanGrpRefCnt_IMPL(struct OBJGVASPACE *pGVAS, KernelChannelGroup *pKernelChannelGroup);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NvU32 gvaspaceGetChanGrpRefCnt(struct OBJGVASPACE *pGVAS, KernelChannelGroup *pKernelChannelGroup) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -618,6 +701,7 @@ static inline NvU32 gvaspaceGetChanGrpRefCnt(struct OBJGVASPACE *pGVAS, KernelCh
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NV_STATUS gvaspaceCheckChanGrpRefCnt_IMPL(struct OBJGVASPACE *pGVAS, KernelChannelGroup *pKernelChannelGroup);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceCheckChanGrpRefCnt(struct OBJGVASPACE *pGVAS, KernelChannelGroup *pKernelChannelGroup) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -628,6 +712,7 @@ static inline NV_STATUS gvaspaceCheckChanGrpRefCnt(struct OBJGVASPACE *pGVAS, Ke
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NV_STATUS gvaspaceUnregisterAllChanGrps_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceUnregisterAllChanGrps(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -638,6 +723,7 @@ static inline NV_STATUS gvaspaceUnregisterAllChanGrps(struct OBJGVASPACE *pGVAS,
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NV_STATUS gvaspaceReservePageTableEntries_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi, const NvU64 pageSizeMask);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceReservePageTableEntries(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi, const NvU64 pageSizeMask) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -648,6 +734,7 @@ static inline NV_STATUS gvaspaceReservePageTableEntries(struct OBJGVASPACE *pGVA
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NV_STATUS gvaspaceReleasePageTableEntries_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi, const NvU64 pageSizeMask);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceReleasePageTableEntries(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, const NvU64 vaLo, const NvU64 vaHi, const NvU64 pageSizeMask) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -658,6 +745,7 @@ static inline NV_STATUS gvaspaceReleasePageTableEntries(struct OBJGVASPACE *pGVA
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NV_STATUS gvaspaceGetPageLevelInfo_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, NV90F1_CTRL_VASPACE_GET_PAGE_LEVEL_INFO_PARAMS *pParams);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceGetPageLevelInfo(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, NV90F1_CTRL_VASPACE_GET_PAGE_LEVEL_INFO_PARAMS *pParams) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -668,6 +756,7 @@ static inline NV_STATUS gvaspaceGetPageLevelInfo(struct OBJGVASPACE *pGVAS, stru
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NV_STATUS gvaspaceCopyServerRmReservedPdesToServerRm_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceCopyServerRmReservedPdesToServerRm(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -678,6 +767,7 @@ static inline NV_STATUS gvaspaceCopyServerRmReservedPdesToServerRm(struct OBJGVA
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NV_STATUS gvaspaceGetFreeHeap_IMPL(struct OBJGVASPACE *pGVAS, NvU64 *pFreeSize);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NV_STATUS gvaspaceGetFreeHeap(struct OBJGVASPACE *pGVAS, NvU64 *pFreeSize) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -688,6 +778,7 @@ static inline NV_STATUS gvaspaceGetFreeHeap(struct OBJGVASPACE *pGVAS, NvU64 *pF
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 NvBool gvaspaceIsInUse_IMPL(struct OBJGVASPACE *pGVAS);
+
 #ifdef __nvoc_gpu_vaspace_h_disabled
 static inline NvBool gvaspaceIsInUse(struct OBJGVASPACE *pGVAS) {
     NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
@@ -695,6 +786,39 @@ static inline NvBool gvaspaceIsInUse(struct OBJGVASPACE *pGVAS) {
 }
 #else //__nvoc_gpu_vaspace_h_disabled
 #define gvaspaceIsInUse(pGVAS) gvaspaceIsInUse_IMPL(pGVAS)
+#endif //__nvoc_gpu_vaspace_h_disabled
+
+NV_STATUS gvaspaceReserveSplitVaSpace_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu);
+
+#ifdef __nvoc_gpu_vaspace_h_disabled
+static inline NV_STATUS gvaspaceReserveSplitVaSpace(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu) {
+    NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
+    return NV_ERR_NOT_SUPPORTED;
+}
+#else //__nvoc_gpu_vaspace_h_disabled
+#define gvaspaceReserveSplitVaSpace(pGVAS, pGpu) gvaspaceReserveSplitVaSpace_IMPL(pGVAS, pGpu)
+#endif //__nvoc_gpu_vaspace_h_disabled
+
+NvBool gvaspaceIsInternalVaRestricted_IMPL(struct OBJGVASPACE *pGVAS);
+
+#ifdef __nvoc_gpu_vaspace_h_disabled
+static inline NvBool gvaspaceIsInternalVaRestricted(struct OBJGVASPACE *pGVAS) {
+    NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
+    return NV_FALSE;
+}
+#else //__nvoc_gpu_vaspace_h_disabled
+#define gvaspaceIsInternalVaRestricted(pGVAS) gvaspaceIsInternalVaRestricted_IMPL(pGVAS)
+#endif //__nvoc_gpu_vaspace_h_disabled
+
+NV_STATUS gvaspaceCopyServerReservedPdes_IMPL(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, NV90F1_CTRL_VASPACE_COPY_SERVER_RESERVED_PDES_PARAMS *pCopyServerReservedPdesParams);
+
+#ifdef __nvoc_gpu_vaspace_h_disabled
+static inline NV_STATUS gvaspaceCopyServerReservedPdes(struct OBJGVASPACE *pGVAS, struct OBJGPU *pGpu, NV90F1_CTRL_VASPACE_COPY_SERVER_RESERVED_PDES_PARAMS *pCopyServerReservedPdesParams) {
+    NV_ASSERT_FAILED_PRECOMP("OBJGVASPACE was disabled!");
+    return NV_ERR_NOT_SUPPORTED;
+}
+#else //__nvoc_gpu_vaspace_h_disabled
+#define gvaspaceCopyServerReservedPdes(pGVAS, pGpu, pCopyServerReservedPdesParams) gvaspaceCopyServerReservedPdes_IMPL(pGVAS, pGpu, pCopyServerReservedPdesParams)
 #endif //__nvoc_gpu_vaspace_h_disabled
 
 #undef PRIVATE_FIELD
@@ -705,4 +829,5 @@ static inline NvBool gvaspaceIsInUse(struct OBJGVASPACE *pGVAS) {
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
 #endif // _G_GPU_VASPACE_NVOC_H_

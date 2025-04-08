@@ -33,6 +33,7 @@ static const struct NVOC_CASTINFO __nvoc_castinfo_IntrService = {
     },
 };
 
+// Not instantiable because it's not derived from class "Object"
 const struct NVOC_CLASS_DEF __nvoc_class_def_IntrService = 
 {
     /*classInfo=*/ {
@@ -47,6 +48,10 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_IntrService =
     /*pCastInfo=*/          &__nvoc_castinfo_IntrService,
     /*pExportInfo=*/        &__nvoc_export_info_IntrService
 };
+
+// Down-thunk(s) to bridge IntrService methods from ancestors (if any)
+
+// Up-thunk(s) to bridge IntrService methods to ancestors (if any)
 
 const struct NVOC_EXPORT_INFO __nvoc_export_info_IntrService = 
 {
@@ -72,19 +77,25 @@ __nvoc_ctor_IntrService_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_IntrService_1(IntrService *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
+} // End __nvoc_init_funcTable_IntrService_1
 
-    pThis->__intrservRegisterIntrService__ = &intrservRegisterIntrService_IMPL;
 
-    pThis->__intrservClearInterrupt__ = &intrservClearInterrupt_IMPL;
-
-    pThis->__intrservServiceInterrupt__ = &intrservServiceInterrupt_IMPL;
-
-    pThis->__intrservServiceNotificationInterrupt__ = &intrservServiceNotificationInterrupt_IMPL;
-}
-
+// Initialize vtable(s) for 4 virtual method(s).
 void __nvoc_init_funcTable_IntrService(IntrService *pThis) {
+
+    // Per-class vtable definition
+    static const struct NVOC_VTABLE__IntrService vtable = {
+        .__intrservRegisterIntrService__ = &intrservRegisterIntrService_IMPL,    // virtual
+        .__intrservClearInterrupt__ = &intrservClearInterrupt_IMPL,    // virtual
+        .__intrservServiceInterrupt__ = &intrservServiceInterrupt_IMPL,    // virtual
+        .__intrservServiceNotificationInterrupt__ = &intrservServiceNotificationInterrupt_IMPL,    // virtual
+    };
+
+    // Pointer(s) to per-class vtable(s)
+    pThis->__nvoc_vtable = &vtable;    // (intrserv) this
     __nvoc_init_funcTable_IntrService_1(pThis);
 }
 

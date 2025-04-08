@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2001-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2001-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -27,11 +27,8 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrl5070/ctrl5070rg.finn
+// Source file:      ctrl/ctrl5070/ctrl5070rg.finn
 //
-
-
-
 
 #include "ctrl/ctrl5070/ctrl5070base.h"
 
@@ -91,8 +88,19 @@ typedef struct NV5070_CTRL_CMD_GET_RG_STATUS_PARAMS {
  *     _SET_RG_: Whether to enable or disable RG underflow reporting.
  *     _GET_RG_: Whether or not RG underflow reporting is enabled.
  *   underflow
- *     _SET_RG_: Clear underflow (TRUE) or leave it alone (FALSE).
- *     _GET_RG_: RG underflow underflowed (TRUE) or not underflowed (FALSE).
+ *     _SET_RG_: Clear underflow (CLEAR_UNDERFLOW_YES) or leave it alone
+ *               (CLEAR_UNDERFLOW_NO).
+ *               Note: The GET_RG function automatically clears the underflow.
+ *               It is recommended that GET_RG be used to clear any initial
+ *               underflows, and that the "underflow" field be set to
+ *               CLEAR_UNDERFLOW_NO in any SET_RG calls.  This field may be
+ *               deprecated in the future, for SET_RG calls.
+ *     _GET_RG_: UNDERFLOWED_YES if an RG underflow occurred since the most
+ *               recent prior call to to NV5070_CTRL_CMD_GET_RG_STATUS.
+ *   epfifoUnderflow
+ *     _SET_RG_: Not used.
+ *     _GET_RG_: EPFIFO_UNDERFLOWED_YES if an EPFIFO underflow occurred since
+ *               the most recent prior call to NV5070_CTRL_CMD_GET_RG_STATUS.
  *   mode
  *     _SET_RG_: What mode to use when underflow occurs. This is
  *               independent from enable field. This is always active.
@@ -103,19 +111,22 @@ typedef struct NV5070_CTRL_CMD_UNDERFLOW_PARAMS {
     NvU32 head;
     NvU32 enable;
     NvU32 underflow;
+    NvU32 epfifoUnderflow;
     NvU32 mode;
 } NV5070_CTRL_CMD_UNDERFLOW_PARAMS;
 
-#define NV5070_CTRL_CMD_UNDERFLOW_PROP_ENABLED_NO          (0x00000000)
-#define NV5070_CTRL_CMD_UNDERFLOW_PROP_ENABLED_YES         (0x00000001)
-#define NV5070_CTRL_CMD_UNDERFLOW_PROP_UNDERFLOWED_NO      (0x00000000)
-#define NV5070_CTRL_CMD_UNDERFLOW_PROP_UNDERFLOWED_YES     (0x00000001)
-#define NV5070_CTRL_CMD_UNDERFLOW_PROP_MODE_REPEAT         (0x00000000)
-#define NV5070_CTRL_CMD_UNDERFLOW_PROP_MODE_RED            (0x00000001)
-#define NV5070_CTRL_CMD_UNDERFLOW_PROP_ENABLE_NO           (0x00000000)
-#define NV5070_CTRL_CMD_UNDERFLOW_PROP_ENABLE_YES          (0x00000001)
-#define NV5070_CTRL_CMD_UNDERFLOW_PROP_CLEAR_UNDERFLOW_NO  (0x00000000)
-#define NV5070_CTRL_CMD_UNDERFLOW_PROP_CLEAR_UNDERFLOW_YES (0x00000001)
+#define NV5070_CTRL_CMD_UNDERFLOW_PROP_ENABLED_NO             (0x00000000)
+#define NV5070_CTRL_CMD_UNDERFLOW_PROP_ENABLED_YES            (0x00000001)
+#define NV5070_CTRL_CMD_UNDERFLOW_PROP_UNDERFLOWED_NO         (0x00000000)
+#define NV5070_CTRL_CMD_UNDERFLOW_PROP_UNDERFLOWED_YES        (0x00000001)
+#define NV5070_CTRL_CMD_UNDERFLOW_PROP_EPFIFO_UNDERFLOWED_NO  (0x00000000)
+#define NV5070_CTRL_CMD_UNDERFLOW_PROP_EPFIFO_UNDERFLOWED_YES (0x00000001)
+#define NV5070_CTRL_CMD_UNDERFLOW_PROP_MODE_REPEAT            (0x00000000)
+#define NV5070_CTRL_CMD_UNDERFLOW_PROP_MODE_RED               (0x00000001)
+#define NV5070_CTRL_CMD_UNDERFLOW_PROP_ENABLE_NO              (0x00000000)
+#define NV5070_CTRL_CMD_UNDERFLOW_PROP_ENABLE_YES             (0x00000001)
+#define NV5070_CTRL_CMD_UNDERFLOW_PROP_CLEAR_UNDERFLOW_NO     (0x00000000)
+#define NV5070_CTRL_CMD_UNDERFLOW_PROP_CLEAR_UNDERFLOW_YES    (0x00000001)
 
 /*
  * NV5070_CTRL_CMD_GET_RG_UNDERFLOW_PROP
@@ -132,7 +143,7 @@ typedef struct NV5070_CTRL_CMD_UNDERFLOW_PARAMS {
  *      NV_ERR_INVALID_ARGUMENT
  *      NV_ERR_GENERIC
  */
-#define NV5070_CTRL_CMD_GET_RG_UNDERFLOW_PROP              (0x50700203) /* finn: Evaluated from "(FINN_NV50_DISPLAY_RG_INTERFACE_ID << 8) | NV5070_CTRL_CMD_GET_RG_UNDERFLOW_PROP_PARAMS_MESSAGE_ID" */
+#define NV5070_CTRL_CMD_GET_RG_UNDERFLOW_PROP                 (0x50700203) /* finn: Evaluated from "(FINN_NV50_DISPLAY_RG_INTERFACE_ID << 8) | NV5070_CTRL_CMD_GET_RG_UNDERFLOW_PROP_PARAMS_MESSAGE_ID" */
 
 #define NV5070_CTRL_CMD_GET_RG_UNDERFLOW_PROP_PARAMS_MESSAGE_ID (0x3U)
 
@@ -244,65 +255,6 @@ typedef struct NV5070_CTRL_CMD_SET_RG_FLIPLOCK_PROP_PARAMS {
     NvU32                       maxSwapLockoutSkew;
     NvU32                       swapLockoutStart;
 } NV5070_CTRL_CMD_SET_RG_FLIPLOCK_PROP_PARAMS;
-
-/*
- * NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN
- *
- * This command returns which lockpin has been connected for the specified
- * subdevice in the current SLI and/or framelock configuration.
- *
- *      head
- *          The head for which the locking is associated with
- *
- *      masterScanLock
- *          Indicate the connection status and pin number of master scanlock
- *
- *      slaveScanLock
- *          Indicate the connection status and pin number of slave scanlock
- *
- *      flipLock
- *          Indicate the connection status and pin number of fliplock
- *
- *      stereoLock
- *          Indicate the connection status and pin number of stereo lock
- *
- * Possible status values returned are:
- *      NV_OK
- *      NV_ERR_INVALID_ARGUMENT
- */
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN                                (0x50700207) /* finn: Evaluated from "(FINN_NV50_DISPLAY_RG_INTERFACE_ID << 8) | NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_PARAMS_MESSAGE_ID" */
-
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_MASTER_SCAN_LOCK_CONNECTED     0:0
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_MASTER_SCAN_LOCK_CONNECTED_NO  (0x00000000)
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_MASTER_SCAN_LOCK_CONNECTED_YES (0x00000001)
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_MASTER_SCAN_LOCK_PIN           3:1
-
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_SLAVE_SCAN_LOCK_CONNECTED      0:0
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_SLAVE_SCAN_LOCK_CONNECTED_NO   (0x00000000)
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_SLAVE_SCAN_LOCK_CONNECTED_YES  (0x00000001)
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_SLAVE_SCAN_LOCK_PIN            3:1
-
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_FLIP_LOCK_CONNECTED       0:0
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_FLIP_LOCK_CONNECTED_NO         (0x00000000)
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_FLIP_LOCK_CONNECTED_YES        (0x00000001)
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_FLIP_LOCK_PIN             3:1
-
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_STEREO_LOCK_CONNECTED     0:0
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_STEREO_LOCK_CONNECTED_NO       (0x00000000)
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_STEREO_LOCK_CONNECTED_YES      (0x00000001)
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_STEREO_LOCK_PIN           3:1
-
-#define NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_PARAMS_MESSAGE_ID (0x7U)
-
-typedef struct NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_PARAMS {
-    NV5070_CTRL_CMD_BASE_PARAMS base;
-    NvU32                       head;
-
-    NvU32                       masterScanLock;
-    NvU32                       slaveScanLock;
-    NvU32                       flipLock;
-    NvU32                       stereoLock;
-} NV5070_CTRL_CMD_GET_RG_CONNECTED_LOCKPIN_PARAMS;
 
 /*
  * NV5070_CTRL_CMD_SET_VIDEO_STATUS

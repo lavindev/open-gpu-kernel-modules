@@ -16,6 +16,7 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_RmHalspecOwner;
 void __nvoc_init_RmHalspecOwner(RmHalspecOwner*,
         NvU32 ChipHal_arch, NvU32 ChipHal_impl, NvU32 ChipHal_hidrev,
         RM_RUNTIME_VARIANT RmVariantHal_rmVariant,
+        TEGRA_CHIP_TYPE TegraChipHal_tegraType,
         NvU32 DispIpHal_ipver);
 void __nvoc_init_funcTable_RmHalspecOwner(RmHalspecOwner*);
 NV_STATUS __nvoc_ctor_RmHalspecOwner(RmHalspecOwner*);
@@ -36,6 +37,7 @@ static const struct NVOC_CASTINFO __nvoc_castinfo_RmHalspecOwner = {
     },
 };
 
+// Not instantiable because it's not derived from class "Object"
 const struct NVOC_CLASS_DEF __nvoc_class_def_RmHalspecOwner = 
 {
     /*classInfo=*/ {
@@ -50,6 +52,10 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_RmHalspecOwner =
     /*pCastInfo=*/          &__nvoc_castinfo_RmHalspecOwner,
     /*pExportInfo=*/        &__nvoc_export_info_RmHalspecOwner
 };
+
+// Down-thunk(s) to bridge RmHalspecOwner methods from ancestors (if any)
+
+// Up-thunk(s) to bridge RmHalspecOwner methods to ancestors (if any)
 
 const struct NVOC_EXPORT_INFO __nvoc_export_info_RmHalspecOwner = 
 {
@@ -75,10 +81,13 @@ __nvoc_ctor_RmHalspecOwner_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_RmHalspecOwner_1(RmHalspecOwner *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
-}
+} // End __nvoc_init_funcTable_RmHalspecOwner_1
 
+
+// Initialize vtable(s): Nothing to do for empty vtables
 void __nvoc_init_funcTable_RmHalspecOwner(RmHalspecOwner *pThis) {
     __nvoc_init_funcTable_RmHalspecOwner_1(pThis);
 }
@@ -86,10 +95,12 @@ void __nvoc_init_funcTable_RmHalspecOwner(RmHalspecOwner *pThis) {
 void __nvoc_init_RmHalspecOwner(RmHalspecOwner *pThis,
         NvU32 ChipHal_arch, NvU32 ChipHal_impl, NvU32 ChipHal_hidrev,
         RM_RUNTIME_VARIANT RmVariantHal_rmVariant,
+        TEGRA_CHIP_TYPE TegraChipHal_tegraType,
         NvU32 DispIpHal_ipver) {
     pThis->__nvoc_pbase_RmHalspecOwner = pThis;
     __nvoc_init_halspec_ChipHal(&pThis->chipHal, ChipHal_arch, ChipHal_impl, ChipHal_hidrev);
     __nvoc_init_halspec_RmVariantHal(&pThis->rmVariantHal, RmVariantHal_rmVariant);
+    __nvoc_init_halspec_TegraChipHal(&pThis->tegraChipHal, TegraChipHal_tegraType);
     __nvoc_init_halspec_DispIpHal(&pThis->dispIpHal, DispIpHal_ipver);
     __nvoc_init_funcTable_RmHalspecOwner(pThis);
 }

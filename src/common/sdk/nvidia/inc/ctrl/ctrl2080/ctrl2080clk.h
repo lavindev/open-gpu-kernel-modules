@@ -25,14 +25,12 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrl2080/ctrl2080clk.finn
+// Source file:      ctrl/ctrl2080/ctrl2080clk.finn
 //
 
 
 
 /* _ctrl2080clk_h_ */
-
-
 #include "nvfixedtypes.h"
 #include "ctrl/ctrl2080/ctrl2080base.h"
 #include "ctrl/ctrl2080/ctrl2080boardobj.h"

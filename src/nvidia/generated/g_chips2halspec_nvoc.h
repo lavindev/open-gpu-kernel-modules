@@ -1,11 +1,19 @@
+
 #ifndef _G_CHIPS2HALSPEC_NVOC_H_
 #define _G_CHIPS2HALSPEC_NVOC_H_
 #include "nvoc/runtime.h"
+
+// Version of generated metadata structures
+#ifdef NVOC_METADATA_VERSION
+#undef NVOC_METADATA_VERSION
+#endif
+#define NVOC_METADATA_VERSION 1
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#pragma once
 #include "g_chips2halspec_nvoc.h"
 
 #ifndef _CHIPS_2_HALSPEC_H_
@@ -30,6 +38,38 @@ struct ChipHal {
 };
 typedef struct ChipHal ChipHal;
 void __nvoc_init_halspec_ChipHal(ChipHal*, NvU32, NvU32, NvU32);
+
+/*
+ * Tegra Chip Type Halspec 
+ *
+ * For Legacy iGPUs, we have two type Tegra chips in Chips.pm
+ *   TEGRA_DGPU : The iGPU Core inside the Tegra Soc Chip with PCIE interface.
+ *                The behavior is more like a dGPU.  Such chip is generally
+ *                added to dGPU (CLASSIC_GPUS) chip family.  E.g. GA10B
+ *                This is generally the test chip used in MODS Arch validation
+ *                that shares the test infrastructure with dGPU.
+ *
+ *   TEGRA      : The SoC chip.  The chips do not share dGPU HAL on PCIE related
+ *                implementation.
+ * 
+ * The Tegra chip after Ampere arch is using PCIE interface which connects
+ * iGPU to SoC for BAR and control accesses (interrupt).
+ * The code between TEGRA_CHIP_TYPE_PCIE and TEGRA_CHIP_TYPE_SOC
+ * shares same dGPU ARCH specific HAL mostly except manual differences due to
+ * latency of manual updates between nvgpu (Standlone iGPU/Full Chip Verification)
+ * and nvmobile (SOC) trees.
+ * */
+typedef enum _TEGRA_CHIP_TYPE {
+    // Default TEGRA_CHIP_TYPE is TEGRA_PCIE
+    TEGRA_CHIP_TYPE_DEFAULT             = 0,
+    TEGRA_CHIP_TYPE_SOC                 = 1,
+} TEGRA_CHIP_TYPE;
+
+struct TegraChipHal {
+    unsigned short __nvoc_HalVarIdx;
+};
+typedef struct TegraChipHal TegraChipHal;
+void __nvoc_init_halspec_TegraChipHal(TegraChipHal*, TEGRA_CHIP_TYPE);
 
 /*
  * RM Runtime Variant Halspec 
@@ -99,6 +139,12 @@ void __nvoc_init_halspec_DispIpHal(DispIpHal*, NvU32);
 // delete ~DISPv0400 & (TU102 | TU104 | TU106 | TU116 | TU117);
 // delete DISPv0401 & ~(GA102 | GA103 | GA104 | GA106 | GA107);
 // delete ~DISPv0401 & (GA102 | GA103 | GA104 | GA106 | GA107);
+// delete DISPv0404 & ~(AD102 | AD103 | AD104 | AD106 | AD107);
+// delete ~DISPv0404 & (AD102 | AD103 | AD104 | AD106 | AD107);
+// delete DISPv0501 & ~GB10B;
+// delete ~DISPv0501 & GB10B;
+// delete DISPv0502 & ~(GB202 | GB203 | GB205 | GB206 | GB207);
+// delete ~DISPv0502 & (GB202 | GB203 | GB205 | GB206 | GB207);
 
 
 /* DPU IP versions */
@@ -117,4 +163,5 @@ void __nvoc_init_halspec_DpuIpHal(DpuIpHal*, NvU32);
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
 #endif // _G_CHIPS2HALSPEC_NVOC_H_

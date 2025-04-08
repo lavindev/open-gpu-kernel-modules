@@ -125,8 +125,8 @@ static const BINDATA_ARCHIVE __ksec2GetBinArchiveBlUcode_TU102 =
     2,  // entryNum
     {
         // entries[] : { "name", pBinStorage }
-        { "ucode_image"       , (const PBINDATA_STORAGE) &g_bindata_pvt.ksec2BinArchiveBlUcode_TU102_ucode_image_storage_pvt },
-        { "ucode_desc"        , (const PBINDATA_STORAGE) &g_bindata_pvt.ksec2BinArchiveBlUcode_TU102_ucode_desc_storage_pvt },
+        { "ucode_image"       , (const PBINDATA_STORAGE) &g_bindata_pvt[__idx_ksec2BinArchiveBlUcode_TU102_ucode_image] },
+        { "ucode_desc"        , (const PBINDATA_STORAGE) &g_bindata_pvt[__idx_ksec2BinArchiveBlUcode_TU102_ucode_desc] },
     }
 };
 
@@ -140,6 +140,14 @@ const BINDATA_ARCHIVE *ksec2GetBinArchiveBlUcode_TU102(struct KernelSec2 *pKerne
     return &__ksec2GetBinArchiveBlUcode_TU102;
 }
 #endif // defined(BINDATA_INCLUDE_FUNCTION)
+
+
+#if defined(BINDATA_INCLUDE_FUNCTION_STUB)
+const BINDATA_ARCHIVE *ksec2GetBinArchiveBlUcode_TU102(struct KernelSec2 *pKernelSec2)
+{
+    return NULL;
+}
+#endif // defined(BINDATA_INCLUDE_FUNCTION_STUB)
 
 
 

@@ -33,6 +33,7 @@ static const struct NVOC_CASTINFO __nvoc_castinfo_OBJTRACEABLE = {
     },
 };
 
+// Not instantiable because it's not derived from class "Object"
 const struct NVOC_CLASS_DEF __nvoc_class_def_OBJTRACEABLE = 
 {
     /*classInfo=*/ {
@@ -47,6 +48,10 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_OBJTRACEABLE =
     /*pCastInfo=*/          &__nvoc_castinfo_OBJTRACEABLE,
     /*pExportInfo=*/        &__nvoc_export_info_OBJTRACEABLE
 };
+
+// Down-thunk(s) to bridge OBJTRACEABLE methods from ancestors (if any)
+
+// Up-thunk(s) to bridge OBJTRACEABLE methods to ancestors (if any)
 
 const struct NVOC_EXPORT_INFO __nvoc_export_info_OBJTRACEABLE = 
 {
@@ -72,10 +77,13 @@ __nvoc_ctor_OBJTRACEABLE_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_OBJTRACEABLE_1(OBJTRACEABLE *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
-}
+} // End __nvoc_init_funcTable_OBJTRACEABLE_1
 
+
+// Initialize vtable(s): Nothing to do for empty vtables
 void __nvoc_init_funcTable_OBJTRACEABLE(OBJTRACEABLE *pThis) {
     __nvoc_init_funcTable_OBJTRACEABLE_1(pThis);
 }

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2004-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2004-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -38,6 +38,7 @@
 #include "rmapi/rs_utils.h"
 #include "mem_mgr/mem.h"
 #include "gpu/mem_mgr/virt_mem_allocator_common.h"
+#include "gpu/gsp/gsp_trace_rats_macro.h"
 
 //
 // EVENT RM SubDevice Controls
@@ -69,7 +70,7 @@ subdeviceCtrlCmdEventSetTriggerFifo_IMPL
 {
     OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
 
-    engineNonStallIntrNotifyEvent(pGpu, NV2080_ENGINE_TYPE_HOST,
+    engineNonStallIntrNotifyEvent(pGpu, RM_ENGINE_TYPE_HOST,
                                   pTriggerFifoParams->hEvent);
 
     return NV_OK;
@@ -192,7 +193,7 @@ subdeviceCtrlCmdEventSetMemoryNotifies_IMPL
     NV_CHECK_OK_OR_RETURN(LEVEL_SILENT,
         memGetByHandle(pClient, pSetMemoryNotifiesParams->hMemory, &pMemory));
 
-    if (pMemory->pMemDesc->Size < NV_SIZEOF32(NvNotification) * NV2080_NOTIFIERS_MAXCOUNT)
+    if (pMemory->pMemDesc->Size < sizeof(NvNotification) * NV2080_NOTIFIERS_MAXCOUNT)
     {
         return NV_ERR_INVALID_LIMIT;
     }
@@ -240,7 +241,6 @@ subdeviceCtrlCmdEventSetSemaphoreMemory_IMPL
     pMemory->vgpuNsIntr.guestMSIAddr = 0;
     pMemory->vgpuNsIntr.guestMSIData = 0;
     pMemory->vgpuNsIntr.guestDomainId = 0;
-    pMemory->vgpuNsIntr.pVgpuVfioRef = NULL;
     pMemory->vgpuNsIntr.isSemaMemValidationEnabled = NV_TRUE;
 
     return NV_OK;
@@ -277,3 +277,67 @@ subdeviceCtrlCmdEventSetSemaMemValidation_IMPL
     return rmStatus;
 }
 
+NV_STATUS
+subdeviceCtrlCmdEventVideoBindEvtbuf_IMPL
+(
+    Subdevice *pSubdevice,
+    NV2080_CTRL_EVENT_VIDEO_BIND_EVTBUF_PARAMS *pParams
+)
+{
+    NV_STATUS status;
+    RsClient *pClient = RES_GET_CLIENT(pSubdevice);
+    RsResourceRef *pEventBufferRef = NULL;
+    OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
+    NvHandle hClient = RES_GET_CLIENT_HANDLE(pSubdevice);
+    NvHandle hNotifier = RES_GET_HANDLE(pSubdevice);
+
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner() && rmDeviceGpuLockIsOwner(pGpu->gpuInstance),
+        NV_ERR_INVALID_LOCK_STATE);
+
+    NV_ASSERT_OK_OR_RETURN(serverutilGetResourceRefWithType(hClient,
+                                                            pParams->hEventBuffer,
+                                                            classId(EventBuffer),
+                                                            &pEventBufferRef));
+
+    status = videoAddBindpoint(pGpu,
+                               pClient,
+                               pEventBufferRef,
+                               hNotifier,
+                               pParams->bAllUsers,
+                               pParams->levelOfDetail,
+                               pParams->eventFilter);
+    return status;
+}
+
+
+NV_STATUS
+subdeviceCtrlCmdEventGspTraceRatsBindEvtbuf_IMPL
+(
+    Subdevice *pSubdevice,
+    NV2080_CTRL_EVENT_RATS_GSP_TRACE_BIND_EVTBUF_PARAMS *pParams
+)
+{
+    NV_STATUS status = NV_ERR_NOT_SUPPORTED;
+#if KERNEL_GSP_TRACING_RATS_ENABLED
+    RsClient *pClient = RES_GET_CLIENT(pSubdevice);
+    RsResourceRef *pEventBufferRef = NULL;
+    OBJGPU *pGpu = GPU_RES_GET_GPU(pSubdevice);
+    NvHandle hClient = RES_GET_CLIENT_HANDLE(pSubdevice);
+    NvHandle hNotifier = RES_GET_HANDLE(pSubdevice);
+
+    NV_ASSERT_OR_RETURN(rmapiLockIsOwner() && rmGpuLockIsOwner(), NV_ERR_INVALID_LOCK_STATE);
+
+    NV_ASSERT_OK_OR_RETURN(serverutilGetResourceRefWithType(hClient,
+                                                            pParams->hEventBuffer,
+                                                            classId(EventBuffer),
+                                                            &pEventBufferRef));
+    status = gspTraceAddBindpoint(pGpu,
+                               pClient,
+                               pEventBufferRef,
+                               hNotifier,
+                               pParams->tracepointMask,
+                               pParams->gspLoggingBufferSize,
+                               pParams->gspLoggingBufferWatermark);
+#endif
+    return status;
+}

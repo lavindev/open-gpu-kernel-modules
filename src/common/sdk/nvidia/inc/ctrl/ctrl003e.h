@@ -27,11 +27,8 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrl003e.finn
+// Source file:      ctrl/ctrl003e.finn
 //
-
-
-
 
 #include "ctrl/ctrlxxxx.h"
 /* NV01_MEMORY_SYSTEM control commands and parameters */

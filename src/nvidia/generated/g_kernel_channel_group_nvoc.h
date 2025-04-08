@@ -1,13 +1,20 @@
+
 #ifndef _G_KERNEL_CHANNEL_GROUP_NVOC_H_
 #define _G_KERNEL_CHANNEL_GROUP_NVOC_H_
 #include "nvoc/runtime.h"
+
+// Version of generated metadata structures
+#ifdef NVOC_METADATA_VERSION
+#undef NVOC_METADATA_VERSION
+#endif
+#define NVOC_METADATA_VERSION 1
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -29,6 +36,7 @@ extern "C" {
  * DEALINGS IN THE SOFTWARE.
  */
 
+#pragma once
 #include "g_kernel_channel_group_nvoc.h"
 
 #ifndef KERNEL_CHANNEL_GROUP_H
@@ -49,6 +57,7 @@ extern "C" {
 #include "kernel/gpu/fifo/kernel_ctxshare.h"
 
 // Forward declaration
+
 struct KernelChannelGroupApi;
 
 #ifndef __NVOC_CLASS_KernelChannelGroupApi_TYPEDEF__
@@ -67,6 +76,16 @@ typedef struct KernelChannelGroupApi KernelChannelGroupApi;
  * that reference the same shared kctxshare object
  */
 MAKE_LIST(KernelChannelGroupApiList, KernelChannelGroupApi *);
+
+/*!
+ * Mapping of VASpace handle to pVaSpaceIdHeap offset.
+ */
+typedef struct
+{
+    NvU64 heapOffset;
+    NvU64 refCount;
+} VaSpaceMapEntry;
+MAKE_MAP(VaSpaceMap, VaSpaceMapEntry);
 
 typedef enum
 {
@@ -109,25 +128,41 @@ typedef struct _HW_ENG_FAULT_METHOD_BUFFER
  * Instances of this class are ref-counted and will be kept alive until
  * all TSG copies have been freed.
  */
+
+// Private field names are wrapped in PRIVATE_FIELD, which does nothing for
+// the matching C source file, but causes diagnostics to be issued if another
+// source file references the field.
 #ifdef NVOC_KERNEL_CHANNEL_GROUP_H_PRIVATE_ACCESS_ALLOWED
 #define PRIVATE_FIELD(x) x
 #else
 #define PRIVATE_FIELD(x) NVOC_PRIVATE_FIELD(x)
 #endif
+
+
 struct KernelChannelGroup {
+
+    // Metadata
     const struct NVOC_RTTI *__nvoc_rtti;
+
+    // Parent (i.e. superclass or base class) objects
     struct RsShared __nvoc_base_RsShared;
-    struct Object *__nvoc_pbase_Object;
-    struct RsShared *__nvoc_pbase_RsShared;
-    struct KernelChannelGroup *__nvoc_pbase_KernelChannelGroup;
+
+    // Ancestor object pointers for `staticCast` feature
+    struct Object *__nvoc_pbase_Object;    // obj super^2
+    struct RsShared *__nvoc_pbase_RsShared;    // shr super
+    struct KernelChannelGroup *__nvoc_pbase_KernelChannelGroup;    // kchangrp
+
+    // Data members
     NODE node;
     NvU32 grpID;
     NvU32 runlistId;
     NvU32 chanCount;
-    NvU32 engineType;
+    RM_ENGINE_TYPE engineType;
     struct OBJVASPACE *pVAS;
     NvU32 gfid;
-    struct OBJEHEAP *pSubctxIdHeap;
+    OBJEHEAP *pSubctxIdHeap;
+    VaSpaceMap vaSpaceMap;
+    OBJEHEAP *pVaSpaceIdHeap;
     CHANNEL_LIST *pChanList;
     NvU64 timesliceUs;
     ENGINE_CTX_DESCRIPTOR **ppEngCtxDesc;
@@ -144,6 +179,7 @@ struct KernelChannelGroup {
     struct MapNode mapNode;
     KernelChannelGroupApiList apiObjList;
     NvBool bIsCallingContextVgpuPlugin;
+    NvU32 tsgUniqueId;
 };
 
 #ifndef __NVOC_CLASS_KernelChannelGroup_TYPEDEF__
@@ -155,6 +191,7 @@ typedef struct KernelChannelGroup KernelChannelGroup;
 #define __nvoc_class_id_KernelChannelGroup 0xec6de1
 #endif /* __nvoc_class_id_KernelChannelGroup */
 
+// Casting support
 extern const struct NVOC_CLASS_DEF __nvoc_class_def_KernelChannelGroup;
 
 #define __staticCast_KernelChannelGroup(pThis) \
@@ -167,16 +204,22 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_KernelChannelGroup;
     ((KernelChannelGroup*)__nvoc_dynamicCast(staticCast((pThis), Dynamic), classInfo(KernelChannelGroup)))
 #endif //__nvoc_kernel_channel_group_h_disabled
 
-
 NV_STATUS __nvoc_objCreateDynamic_KernelChannelGroup(KernelChannelGroup**, Dynamic*, NvU32, va_list);
 
 NV_STATUS __nvoc_objCreate_KernelChannelGroup(KernelChannelGroup**, Dynamic*, NvU32);
 #define __objCreate_KernelChannelGroup(ppNewObj, pParent, createFlags) \
     __nvoc_objCreate_KernelChannelGroup((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
 
+
+// Wrapper macros
+
+// Dispatch functions
 static inline NV_STATUS kchangrpSetInterleaveLevelSched_56cd7a(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, NvU32 value) {
     return NV_OK;
 }
+
+NV_STATUS kchangrpSetInterleaveLevelSched_GM107(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, NvU32 value);
+
 
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NV_STATUS kchangrpSetInterleaveLevelSched(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, NvU32 value) {
@@ -189,79 +232,57 @@ static inline NV_STATUS kchangrpSetInterleaveLevelSched(struct OBJGPU *pGpu, str
 
 #define kchangrpSetInterleaveLevelSched_HAL(pGpu, pKernelChannelGroup, value) kchangrpSetInterleaveLevelSched(pGpu, pKernelChannelGroup, value)
 
-NvU32 kchangrpGetDefaultRunlist_GM107(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup);
-
-#ifdef __nvoc_kernel_channel_group_h_disabled
-static inline NvU32 kchangrpGetDefaultRunlist(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup) {
-    NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
-    return 0;
-}
-#else //__nvoc_kernel_channel_group_h_disabled
-#define kchangrpGetDefaultRunlist(pGpu, pKernelChannelGroup) kchangrpGetDefaultRunlist_GM107(pGpu, pKernelChannelGroup)
-#endif //__nvoc_kernel_channel_group_h_disabled
-
-#define kchangrpGetDefaultRunlist_HAL(pGpu, pKernelChannelGroup) kchangrpGetDefaultRunlist(pGpu, pKernelChannelGroup)
-
-static inline void kchangrpUpdateSubcontextMask_b3696a(struct OBJGPU *pGpu, struct KernelChannelGroup *arg0, NvU32 arg1, NvBool arg2) {
+static inline void kchangrpUpdateSubcontextMask_b3696a(struct OBJGPU *pGpu, struct KernelChannelGroup *arg2, NvU32 arg3, NvBool arg4) {
     return;
 }
 
+void kchangrpUpdateSubcontextMask_GV100(struct OBJGPU *pGpu, struct KernelChannelGroup *arg2, NvU32 arg3, NvBool arg4);
+
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
-static inline void kchangrpUpdateSubcontextMask(struct OBJGPU *pGpu, struct KernelChannelGroup *arg0, NvU32 arg1, NvBool arg2) {
+static inline void kchangrpUpdateSubcontextMask(struct OBJGPU *pGpu, struct KernelChannelGroup *arg2, NvU32 arg3, NvBool arg4) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
 }
 #else //__nvoc_kernel_channel_group_h_disabled
-#define kchangrpUpdateSubcontextMask(pGpu, arg0, arg1, arg2) kchangrpUpdateSubcontextMask_b3696a(pGpu, arg0, arg1, arg2)
+#define kchangrpUpdateSubcontextMask(pGpu, arg2, arg3, arg4) kchangrpUpdateSubcontextMask_b3696a(pGpu, arg2, arg3, arg4)
 #endif //__nvoc_kernel_channel_group_h_disabled
 
-#define kchangrpUpdateSubcontextMask_HAL(pGpu, arg0, arg1, arg2) kchangrpUpdateSubcontextMask(pGpu, arg0, arg1, arg2)
+#define kchangrpUpdateSubcontextMask_HAL(pGpu, arg2, arg3, arg4) kchangrpUpdateSubcontextMask(pGpu, arg2, arg3, arg4)
 
-static inline void kchangrpSetSubcontextZombieState_b3696a(struct OBJGPU *pGpu, struct KernelChannelGroup *arg0, NvU32 arg1, NvBool arg2) {
+static inline void kchangrpSetSubcontextZombieState_b3696a(struct OBJGPU *pGpu, struct KernelChannelGroup *arg2, NvU32 arg3, NvBool arg4) {
     return;
 }
 
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
-static inline void kchangrpSetSubcontextZombieState(struct OBJGPU *pGpu, struct KernelChannelGroup *arg0, NvU32 arg1, NvBool arg2) {
+static inline void kchangrpSetSubcontextZombieState(struct OBJGPU *pGpu, struct KernelChannelGroup *arg2, NvU32 arg3, NvBool arg4) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
 }
 #else //__nvoc_kernel_channel_group_h_disabled
-#define kchangrpSetSubcontextZombieState(pGpu, arg0, arg1, arg2) kchangrpSetSubcontextZombieState_b3696a(pGpu, arg0, arg1, arg2)
+#define kchangrpSetSubcontextZombieState(pGpu, arg2, arg3, arg4) kchangrpSetSubcontextZombieState_b3696a(pGpu, arg2, arg3, arg4)
 #endif //__nvoc_kernel_channel_group_h_disabled
 
-#define kchangrpSetSubcontextZombieState_HAL(pGpu, arg0, arg1, arg2) kchangrpSetSubcontextZombieState(pGpu, arg0, arg1, arg2)
+#define kchangrpSetSubcontextZombieState_HAL(pGpu, arg2, arg3, arg4) kchangrpSetSubcontextZombieState(pGpu, arg2, arg3, arg4)
 
-static inline NvBool kchangrpGetSubcontextZombieState_ceaee8(struct OBJGPU *pGpu, struct KernelChannelGroup *arg0, NvU32 arg1) {
+static inline NvBool kchangrpGetSubcontextZombieState_72a2e1(struct OBJGPU *pGpu, struct KernelChannelGroup *arg2, NvU32 arg3) {
     NV_ASSERT_PRECOMP(0);
-    return ((NvBool)(0 != 0));
+    return NV_FALSE;
 }
 
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
-static inline NvBool kchangrpGetSubcontextZombieState(struct OBJGPU *pGpu, struct KernelChannelGroup *arg0, NvU32 arg1) {
+static inline NvBool kchangrpGetSubcontextZombieState(struct OBJGPU *pGpu, struct KernelChannelGroup *arg2, NvU32 arg3) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
     return NV_FALSE;
 }
 #else //__nvoc_kernel_channel_group_h_disabled
-#define kchangrpGetSubcontextZombieState(pGpu, arg0, arg1) kchangrpGetSubcontextZombieState_ceaee8(pGpu, arg0, arg1)
+#define kchangrpGetSubcontextZombieState(pGpu, arg2, arg3) kchangrpGetSubcontextZombieState_72a2e1(pGpu, arg2, arg3)
 #endif //__nvoc_kernel_channel_group_h_disabled
 
-#define kchangrpGetSubcontextZombieState_HAL(pGpu, arg0, arg1) kchangrpGetSubcontextZombieState(pGpu, arg0, arg1)
-
-static inline NV_STATUS kchangrpFreeGrSubcontextHdrs_56cd7a(struct OBJGPU *pGpu, struct KernelChannelGroup *arg0) {
-    return NV_OK;
-}
-
-#ifdef __nvoc_kernel_channel_group_h_disabled
-static inline NV_STATUS kchangrpFreeGrSubcontextHdrs(struct OBJGPU *pGpu, struct KernelChannelGroup *arg0) {
-    NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
-    return NV_ERR_NOT_SUPPORTED;
-}
-#else //__nvoc_kernel_channel_group_h_disabled
-#define kchangrpFreeGrSubcontextHdrs(pGpu, arg0) kchangrpFreeGrSubcontextHdrs_56cd7a(pGpu, arg0)
-#endif //__nvoc_kernel_channel_group_h_disabled
-
-#define kchangrpFreeGrSubcontextHdrs_HAL(pGpu, arg0) kchangrpFreeGrSubcontextHdrs(pGpu, arg0)
+#define kchangrpGetSubcontextZombieState_HAL(pGpu, arg2, arg3) kchangrpGetSubcontextZombieState(pGpu, arg2, arg3)
 
 NV_STATUS kchangrpAllocFaultMethodBuffers_GV100(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup);
+
 
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NV_STATUS kchangrpAllocFaultMethodBuffers(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup) {
@@ -276,6 +297,7 @@ static inline NV_STATUS kchangrpAllocFaultMethodBuffers(struct OBJGPU *pGpu, str
 
 NV_STATUS kchangrpFreeFaultMethodBuffers_GV100(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup);
 
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NV_STATUS kchangrpFreeFaultMethodBuffers(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
@@ -289,6 +311,7 @@ static inline NV_STATUS kchangrpFreeFaultMethodBuffers(struct OBJGPU *pGpu, stru
 
 NV_STATUS kchangrpMapFaultMethodBuffers_GV100(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, NvU32 runqueue);
 
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NV_STATUS kchangrpMapFaultMethodBuffers(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, NvU32 runqueue) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
@@ -301,6 +324,7 @@ static inline NV_STATUS kchangrpMapFaultMethodBuffers(struct OBJGPU *pGpu, struc
 #define kchangrpMapFaultMethodBuffers_HAL(pGpu, pKernelChannelGroup, runqueue) kchangrpMapFaultMethodBuffers(pGpu, pKernelChannelGroup, runqueue)
 
 NV_STATUS kchangrpUnmapFaultMethodBuffers_GV100(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, NvU32 runqueue);
+
 
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NV_STATUS kchangrpUnmapFaultMethodBuffers(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, NvU32 runqueue) {
@@ -317,6 +341,7 @@ static inline NV_STATUS kchangrpSetRealtime_56cd7a(struct OBJGPU *pGpu, struct K
     return NV_OK;
 }
 
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NV_STATUS kchangrpSetRealtime(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, NvBool bRealtime) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
@@ -329,10 +354,13 @@ static inline NV_STATUS kchangrpSetRealtime(struct OBJGPU *pGpu, struct KernelCh
 #define kchangrpSetRealtime_HAL(pGpu, pKernelChannelGroup, bRealtime) kchangrpSetRealtime(pGpu, pKernelChannelGroup, bRealtime)
 
 NV_STATUS kchangrpConstruct_IMPL(struct KernelChannelGroup *arg_pKernelChannelGroup);
+
 #define __nvoc_kchangrpConstruct(arg_pKernelChannelGroup) kchangrpConstruct_IMPL(arg_pKernelChannelGroup)
 void kchangrpDestruct_IMPL(struct KernelChannelGroup *pKernelChannelGroup);
+
 #define __nvoc_kchangrpDestruct(pKernelChannelGroup) kchangrpDestruct_IMPL(pKernelChannelGroup)
 void kchangrpSetState_IMPL(struct KernelChannelGroup *pKernelChannelGroup, NvU32 subdevice, CHANNELGROUP_STATE state);
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline void kchangrpSetState(struct KernelChannelGroup *pKernelChannelGroup, NvU32 subdevice, CHANNELGROUP_STATE state) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
@@ -342,6 +370,7 @@ static inline void kchangrpSetState(struct KernelChannelGroup *pKernelChannelGro
 #endif //__nvoc_kernel_channel_group_h_disabled
 
 void kchangrpClearState_IMPL(struct KernelChannelGroup *pKernelChannelGroup, NvU32 subdevice, CHANNELGROUP_STATE state);
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline void kchangrpClearState(struct KernelChannelGroup *pKernelChannelGroup, NvU32 subdevice, CHANNELGROUP_STATE state) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
@@ -351,6 +380,7 @@ static inline void kchangrpClearState(struct KernelChannelGroup *pKernelChannelG
 #endif //__nvoc_kernel_channel_group_h_disabled
 
 NvBool kchangrpIsStateSet_IMPL(struct KernelChannelGroup *pKernelChannelGroup, NvU32 subdevice, CHANNELGROUP_STATE state);
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NvBool kchangrpIsStateSet(struct KernelChannelGroup *pKernelChannelGroup, NvU32 subdevice, CHANNELGROUP_STATE state) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
@@ -361,6 +391,7 @@ static inline NvBool kchangrpIsStateSet(struct KernelChannelGroup *pKernelChanne
 #endif //__nvoc_kernel_channel_group_h_disabled
 
 NV_STATUS kchangrpAddChannel_IMPL(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, struct KernelChannel *pKernelChannel);
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NV_STATUS kchangrpAddChannel(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, struct KernelChannel *pKernelChannel) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
@@ -371,6 +402,7 @@ static inline NV_STATUS kchangrpAddChannel(struct OBJGPU *pGpu, struct KernelCha
 #endif //__nvoc_kernel_channel_group_h_disabled
 
 NV_STATUS kchangrpRemoveChannel_IMPL(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, struct KernelChannel *pKernelChannel);
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NV_STATUS kchangrpRemoveChannel(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, struct KernelChannel *pKernelChannel) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
@@ -381,6 +413,7 @@ static inline NV_STATUS kchangrpRemoveChannel(struct OBJGPU *pGpu, struct Kernel
 #endif //__nvoc_kernel_channel_group_h_disabled
 
 NV_STATUS kchangrpInit_IMPL(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, struct OBJVASPACE *pVAS, NvU32 gfid);
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NV_STATUS kchangrpInit(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, struct OBJVASPACE *pVAS, NvU32 gfid) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
@@ -391,6 +424,7 @@ static inline NV_STATUS kchangrpInit(struct OBJGPU *pGpu, struct KernelChannelGr
 #endif //__nvoc_kernel_channel_group_h_disabled
 
 NV_STATUS kchangrpDestroy_IMPL(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup);
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NV_STATUS kchangrpDestroy(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
@@ -401,6 +435,7 @@ static inline NV_STATUS kchangrpDestroy(struct OBJGPU *pGpu, struct KernelChanne
 #endif //__nvoc_kernel_channel_group_h_disabled
 
 NV_STATUS kchangrpAllocEngineContextDescriptor_IMPL(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup);
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NV_STATUS kchangrpAllocEngineContextDescriptor(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
@@ -410,17 +445,19 @@ static inline NV_STATUS kchangrpAllocEngineContextDescriptor(struct OBJGPU *pGpu
 #define kchangrpAllocEngineContextDescriptor(pGpu, pKernelChannelGroup) kchangrpAllocEngineContextDescriptor_IMPL(pGpu, pKernelChannelGroup)
 #endif //__nvoc_kernel_channel_group_h_disabled
 
-NV_STATUS kchangrpGetEngineContextMemDesc_IMPL(struct OBJGPU *pGpu, struct KernelChannelGroup *arg0, MEMORY_DESCRIPTOR **arg1);
+NV_STATUS kchangrpGetEngineContextMemDesc_IMPL(struct OBJGPU *pGpu, struct KernelChannelGroup *arg2, MEMORY_DESCRIPTOR **arg3);
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
-static inline NV_STATUS kchangrpGetEngineContextMemDesc(struct OBJGPU *pGpu, struct KernelChannelGroup *arg0, MEMORY_DESCRIPTOR **arg1) {
+static inline NV_STATUS kchangrpGetEngineContextMemDesc(struct OBJGPU *pGpu, struct KernelChannelGroup *arg2, MEMORY_DESCRIPTOR **arg3) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
     return NV_ERR_NOT_SUPPORTED;
 }
 #else //__nvoc_kernel_channel_group_h_disabled
-#define kchangrpGetEngineContextMemDesc(pGpu, arg0, arg1) kchangrpGetEngineContextMemDesc_IMPL(pGpu, arg0, arg1)
+#define kchangrpGetEngineContextMemDesc(pGpu, arg2, arg3) kchangrpGetEngineContextMemDesc_IMPL(pGpu, arg2, arg3)
 #endif //__nvoc_kernel_channel_group_h_disabled
 
 NV_STATUS kchangrpSetInterleaveLevel_IMPL(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, NvU32 value);
+
 #ifdef __nvoc_kernel_channel_group_h_disabled
 static inline NV_STATUS kchangrpSetInterleaveLevel(struct OBJGPU *pGpu, struct KernelChannelGroup *pKernelChannelGroup, NvU32 value) {
     NV_ASSERT_FAILED_PRECOMP("KernelChannelGroup was disabled!");
@@ -440,4 +477,5 @@ MAKE_INTRUSIVE_MAP(KernelChannelGroupMap, KernelChannelGroup, mapNode);
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
 #endif // _G_KERNEL_CHANNEL_GROUP_NVOC_H_

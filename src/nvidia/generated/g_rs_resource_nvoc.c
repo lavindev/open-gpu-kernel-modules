@@ -57,6 +57,10 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_RsResource =
     /*pExportInfo=*/        &__nvoc_export_info_RsResource
 };
 
+// Down-thunk(s) to bridge RsResource methods from ancestors (if any)
+
+// Up-thunk(s) to bridge RsResource methods to ancestors (if any)
+
 const struct NVOC_EXPORT_INFO __nvoc_export_info_RsResource = 
 {
     /*numEntries=*/     0,
@@ -93,41 +97,39 @@ __nvoc_ctor_RsResource_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_RsResource_1(RsResource *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
+} // End __nvoc_init_funcTable_RsResource_1
 
-    pThis->__resCanCopy__ = &resCanCopy_IMPL;
 
-    pThis->__resPreDestruct__ = &resPreDestruct_IMPL;
-
-    pThis->__resControlLookup__ = &resControlLookup_IMPL;
-
-    pThis->__resControl__ = &resControl_IMPL;
-
-    pThis->__resControlFilter__ = &resControlFilter_IMPL;
-
-    pThis->__resControl_Prologue__ = &resControl_Prologue_IMPL;
-
-    pThis->__resControl_Epilogue__ = &resControl_Epilogue_IMPL;
-
-    pThis->__resMap__ = &resMap_IMPL;
-
-    pThis->__resUnmap__ = &resUnmap_IMPL;
-
-    pThis->__resMapTo__ = &resMapTo_IMPL;
-
-    pThis->__resUnmapFrom__ = &resUnmapFrom_IMPL;
-
-    pThis->__resGetRefCount__ = &resGetRefCount_IMPL;
-
-    pThis->__resAccessCallback__ = &resAccessCallback_IMPL;
-
-    pThis->__resShareCallback__ = &resShareCallback_IMPL;
-
-    pThis->__resAddAdditionalDependants__ = &resAddAdditionalDependants_IMPL;
-}
-
+// Initialize vtable(s) for 18 virtual method(s).
 void __nvoc_init_funcTable_RsResource(RsResource *pThis) {
+
+    // Per-class vtable definition
+    static const struct NVOC_VTABLE__RsResource vtable = {
+        .__resCanCopy__ = &resCanCopy_IMPL,    // virtual
+        .__resIsDuplicate__ = &resIsDuplicate_IMPL,    // virtual
+        .__resPreDestruct__ = &resPreDestruct_IMPL,    // virtual
+        .__resControl__ = &resControl_IMPL,    // virtual
+        .__resControlFilter__ = &resControlFilter_IMPL,    // virtual
+        .__resControlSerialization_Prologue__ = &resControlSerialization_Prologue_IMPL,    // virtual
+        .__resControlSerialization_Epilogue__ = &resControlSerialization_Epilogue_IMPL,    // virtual
+        .__resControl_Prologue__ = &resControl_Prologue_IMPL,    // virtual
+        .__resControl_Epilogue__ = &resControl_Epilogue_IMPL,    // virtual
+        .__resMap__ = &resMap_IMPL,    // virtual
+        .__resUnmap__ = &resUnmap_IMPL,    // virtual
+        .__resIsPartialUnmapSupported__ = &resIsPartialUnmapSupported_d69453,    // inline virtual body
+        .__resMapTo__ = &resMapTo_IMPL,    // virtual
+        .__resUnmapFrom__ = &resUnmapFrom_IMPL,    // virtual
+        .__resGetRefCount__ = &resGetRefCount_IMPL,    // virtual
+        .__resAccessCallback__ = &resAccessCallback_IMPL,    // virtual
+        .__resShareCallback__ = &resShareCallback_IMPL,    // virtual
+        .__resAddAdditionalDependants__ = &resAddAdditionalDependants_IMPL,    // virtual
+    };
+
+    // Pointer(s) to per-class vtable(s)
+    pThis->__nvoc_vtable = &vtable;    // (res) this
     __nvoc_init_funcTable_RsResource_1(pThis);
 }
 
@@ -139,18 +141,26 @@ void __nvoc_init_RsResource(RsResource *pThis) {
     __nvoc_init_funcTable_RsResource(pThis);
 }
 
-NV_STATUS __nvoc_objCreate_RsResource(RsResource **ppThis, Dynamic *pParent, NvU32 createFlags, struct CALL_CONTEXT * arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL * arg_pParams) {
+NV_STATUS __nvoc_objCreate_RsResource(RsResource **ppThis, Dynamic *pParent, NvU32 createFlags, struct CALL_CONTEXT * arg_pCallContext, struct RS_RES_ALLOC_PARAMS_INTERNAL * arg_pParams)
+{
     NV_STATUS status;
-    Object *pParentObj;
+    Object *pParentObj = NULL;
     RsResource *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(RsResource));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    // Assign `pThis`, allocating memory unless suppressed by flag.
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(RsResource), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
+    // Zero is the initial value for everything.
     portMemSet(pThis, 0, sizeof(RsResource));
 
+    // Initialize runtime type information.
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_RsResource);
 
+    pThis->__nvoc_base_Object.createFlags = createFlags;
+
+    // Link the child into the parent if there is one unless flagged not to do so.
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
         pParentObj = dynamicCast(pParent, Object);
@@ -165,12 +175,27 @@ NV_STATUS __nvoc_objCreate_RsResource(RsResource **ppThis, Dynamic *pParent, NvU
     status = __nvoc_ctor_RsResource(pThis, arg_pCallContext, arg_pParams);
     if (status != NV_OK) goto __nvoc_objCreate_RsResource_cleanup;
 
+    // Assignment has no effect if NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT is set.
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_RsResource_cleanup:
-    // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+
+    // Unlink the child from the parent if it was linked above.
+    if (pParentObj != NULL)
+        objRemoveChild(pParentObj, &pThis->__nvoc_base_Object);
+
+    // Do not call destructors here since the constructor already called them.
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(RsResource));
+    else
+    {
+        portMemFree(pThis);
+        *ppThis = NULL;
+    }
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 

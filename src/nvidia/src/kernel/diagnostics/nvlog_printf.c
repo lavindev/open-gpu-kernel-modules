@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2002-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2002-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -59,7 +59,7 @@ enum {
 // nvDbgBreakpointEnabled - Returns true if triggering a breakpoint is allowed
 //
 NvBool osDbgBreakpointEnabled(void);
-NvBool nvDbgBreakpointEnabled()
+NvBool nvDbgBreakpointEnabled(void)
 {
     OBJSYS *pSys = SYS_GET_INSTANCE();
     if (pSys != NULL)
@@ -223,7 +223,8 @@ _nvDbgPrepareString
 // Temporary helper to map LEVEL_xxx constants to a platform specific level.
 //
 #if PORT_IS_FUNC_SUPPORTED(portDbgExPrintfLevel)
-static NvU32 _nvDbgLevelToPlatformLevel(NvBool bForce,  NvU32 level)
+
+static NvU32 _nvDbgForceLevel(NvBool bForce, NvU32 level)
 {
     return bForce ? LEVEL_FATAL : level;
 }
@@ -249,12 +250,12 @@ void nvDbg_vPrintf
     if (nvDbg_PrintMsg(filename, linenumber, function, debuglevel, printf_format, &force, &prefix))
     {
         portSyncSpinlockAcquire(_nv_dbg_lock);
-          _nvDbgPrepareString(filename, linenumber, function, printf_format, prefix, arglist);
+        _nvDbgPrepareString(filename, linenumber, function, printf_format, prefix, arglist);
 #if PORT_IS_FUNC_SUPPORTED(portDbgExPrintfLevel)
-          portDbgExPrintfLevel(_nvDbgLevelToPlatformLevel(force, debuglevel),
-                               "%.*s", MAX_ERROR_STRING, _nv_dbg_string);
+        portDbgExPrintfLevel(_nvDbgForceLevel(force, debuglevel),
+                             "%.*s", MAX_ERROR_STRING, _nv_dbg_string);
 #else
-          portDbgPrintString(_nv_dbg_string, MAX_ERROR_STRING);
+        portDbgPrintString(_nv_dbg_string, MAX_ERROR_STRING);
 #endif
         portSyncSpinlockRelease(_nv_dbg_lock);
     }
@@ -1033,253 +1034,6 @@ static int strtofmtstr(const char *src, char *dest, char *destLimit, int fieldwi
     return((int)(d - dest));   // Return the character count, not including the null
 }
 
-//********************************************************************************
-//
-//  NVRM_TRACE support
-//    low-overhead runtime state capture
-//    to enable, define USE_NVRM_TRACE (retail or debug builds)
-//
-//********************************************************************************
-
-#ifdef USE_NVRM_TRACE
-
-// TODO: It would be really cool if we could
-// find a way to tie this to a board instance.
-// Or at least provide some way to tag entries
-// relative to the board.  It would be even
-// more cool if each entry was of the form:
-//
-//    TIMESTAMP : CPU# : BOARD# : LINE# : FILENAME : <ENTRY>
-//
-// where <entry> could be either a string or a value.
-//
-
-// the number of trace words in the ring buffer.
-// a trace event can be 1 or more words
-#define NVRM_TRACE_ENTRIES (2048)
-// a typedef for the trace table.  Add a pad to simplify
-// bounds checking
-typedef NvU32 NVRM_TRACE_t[NVRM_TRACE_ENTRIES + 16];
-
-NvU32 NVRM_tracing = 0;    // enabled or not?
-// a type'd ptr to the table.  This may make it easier for your debugger
-//   to dump out the table (definitely helps on the mac)
-NVRM_TRACE_t *NVRM_TRACE_GTRACE;
-// actual table pointer
-NvU32 *NVRM_TRACE_table;
-// current index into the table
-NvU32 NVRM_TRACE_idx;
-
-#define NVRM_TRACE_BUMP(inc) { NVRM_TRACE_idx += (inc); \
-                               if (NVRM_TRACE_idx >= NVRM_TRACE_ENTRIES) NVRM_TRACE_idx = 0; \
-                               NVRM_TRACE_table[NVRM_TRACE_idx] = '****'; \
-                             }
-
-NvU32 NVRM_TRACE_INIT()
-{
-    OBJSYS *pSys = SYS_GET_INSTANCE();
-    OBJOS *pOS = SYS_GET_OS(pSys);
-
-    // skip out if already initialized
-    if (NVRM_TRACE_table)
-        goto done;
-
-    //
-    // allocate the table
-    // depending on when you call NVRM_TRACE_INIT, might not be able to
-    // use portMemAllocNonPaged()
-    //
-    NVRM_TRACE_table = portMemAllocNonPaged(sizeof(NVRM_TRACE_t));
-
-    // clear the table
-    if (NVRM_TRACE_table)
-        portMemSet(NVRM_TRACE_table, 0, sizeof(NVRM_TRACE_t));
-
-    NVRM_TRACE_GTRACE = (void *) NVRM_TRACE_table;
-
-    NV_PRINTF(LEVEL_ERROR,
-              "trace table at 0x%x through 0x%x, idx at 0x%x\n",
-              NVRM_TRACE_table, &NVRM_TRACE_table[NVRM_TRACE_ENTRIES],
-              &NVRM_TRACE_idx);
-
-    if (NVRM_TRACE_table != NULL)
-    {
-        NVRM_tracing = 1;
-    }
-
- done:
-    return NVRM_tracing;
-}
-
-NvU32 NVRM_TRACE_DISABLE(void)
-{
-    NvU32 previous = NVRM_tracing;
-    NVRM_tracing = 0;
-    return previous;
-}
-
-void NVRM_TRACE_ENABLE(void)
-{
-    NVRM_tracing = 1;
-}
-
-void NVRM_TRACE(NvU32 value)
-{
-    if ( ! NVRM_tracing) return;
-    if (NVRM_TRACE_table == (NvU32 *) 0)
-        if ( ! NVRM_TRACE_INIT())
-            return;
-
-    NVRM_TRACE_table[NVRM_TRACE_idx] = value;
-    NVRM_TRACE_BUMP(1);
-}
-
-void NVRM_TRACE1(NvU32 value)
-{
-    if ( ! NVRM_tracing) return;
-    if (NVRM_TRACE_table == (NvU32 *) 0)
-        if ( ! NVRM_TRACE_INIT())
-            return;
-
-    NVRM_TRACE_table[NVRM_TRACE_idx] = value;
-    NVRM_TRACE_BUMP(1);
-}
-
-void NVRM_TRACE2(NvU32 value1, NvU32 value2)
-{
-    if ( ! NVRM_tracing) return;
-    if (NVRM_TRACE_table == (NvU32 *) 0)
-        if ( ! NVRM_TRACE_INIT())
-            return;
-
-    NVRM_TRACE_table[NVRM_TRACE_idx]   = value1;
-    NVRM_TRACE_table[NVRM_TRACE_idx+1] = value2;
-    NVRM_TRACE_BUMP(2);
-}
-
-void NVRM_TRACE3(NvU32 value1, NvU32 value2, NvU32 value3)
-{
-    if ( ! NVRM_tracing) return;
-    if (NVRM_TRACE_table == (NvU32 *) 0)
-        if ( ! NVRM_TRACE_INIT())
-            return;
-
-    NVRM_TRACE_table[NVRM_TRACE_idx]   = value1;
-    NVRM_TRACE_table[NVRM_TRACE_idx+1] = value2;
-    NVRM_TRACE_table[NVRM_TRACE_idx+2] = value3;
-    NVRM_TRACE_BUMP(3);
-}
-
-void NVRM_TRACE4(NvU32 value1, NvU32 value2, NvU32 value3, NvU32 value4)
-{
-    if ( ! NVRM_tracing) return;
-    if (NVRM_TRACE_table == (NvU32 *) 0)
-        if ( ! NVRM_TRACE_INIT())
-            return;
-
-    NVRM_TRACE_table[NVRM_TRACE_idx]   = value1;
-    NVRM_TRACE_table[NVRM_TRACE_idx+1] = value2;
-    NVRM_TRACE_table[NVRM_TRACE_idx+2] = value3;
-    NVRM_TRACE_table[NVRM_TRACE_idx+3] = value4;
-    NVRM_TRACE_BUMP(4);
-}
-
-void NVRM_TRACE5(NvU32 value1, NvU32 value2, NvU32 value3, NvU32 value4, NvU32 value5)
-{
-    if ( ! NVRM_tracing) return;
-    if (NVRM_TRACE_table == (NvU32 *) 0)
-        if ( ! NVRM_TRACE_INIT())
-            return;
-
-    NVRM_TRACE_table[NVRM_TRACE_idx]   = value1;
-    NVRM_TRACE_table[NVRM_TRACE_idx+1] = value2;
-    NVRM_TRACE_table[NVRM_TRACE_idx+2] = value3;
-    NVRM_TRACE_table[NVRM_TRACE_idx+3] = value4;
-    NVRM_TRACE_table[NVRM_TRACE_idx+4] = value5;
-    NVRM_TRACE_BUMP(5);
-}
-
-#ifndef ACTUAL_REG_RD32
-#define ACTUAL_REG_RD32 GPU_REG_RD32
-#endif
-#ifndef ACTUAL_REG_WR32
-#define ACTUAL_REG_WR32 GPU_REG_WR32
-#endif
-#ifndef ACTUAL_REG_RD08
-#define ACTUAL_REG_RD08 GPU_REG_RD08
-#endif
-#ifndef ACTUAL_REG_WR08
-#define ACTUAL_REG_WR08 GPU_REG_WR08
-#endif
-
-NvU32 NVRM_TRACE_REG_RD32(OBJGPU *pGpu, NvU32 offset)
-{
-    NvU32 value = ACTUAL_REG_RD32(pGpu, offset);
-    NVRM_TRACE3('RD32', offset, value);
-    return value;
-}
-
-void NVRM_TRACE_REG_WR32(OBJGPU *pGpu, NvU32 offset, NvU32 value)
-{
-    ACTUAL_REG_WR32(pGpu, offset, value);
-    NVRM_TRACE3('WR32', offset, value);
-}
-
-NvU8 NVRM_TRACE_REG_RD08(OBJGPU *pGpu, NvU32 offset)
-{
-    NvU32 value = ACTUAL_REG_RD08(pGpu, offset);
-    NVRM_TRACE3('RD08', offset, value);
-    return (NvU8) value;
-}
-
-void NVRM_TRACE_REG_WR08(OBJGPU *pGpu, NvU32 offset, NvU8 value)
-{
-    ACTUAL_REG_WR08(pGpu, offset, value);
-    NVRM_TRACE3('WR08', offset, value);
-}
-
-void NVRM_TRACEV(NvU32 *values, NvU32 numValues)
-{
-    NvU32 n;
-
-    if ( ! NVRM_tracing) return;
-    if (NVRM_TRACE_table == (NvU32 *) 0)
-        if ( ! NVRM_TRACE_INIT())
-            return;
-
-    for ( n = 0; n < numValues; n++ )
-        NVRM_TRACE_table[NVRM_TRACE_idx+n] = values[n];
-
-    NVRM_TRACE_BUMP(n);
-}
-
-void NVRM_TRACE_DUMP(void)
-{
-    int i;
-    static int dumping = 0;
-
-    // No table?
-    if ( ! NVRM_TRACE_table) return;
-
-    // don't nest while dumping this
-    if (dumping) return;
-    dumping = 1;
-
-    NVRM_TRACE_DISABLE();
-
-    for (i=0; i <= NVRM_TRACE_ENTRIES; i += 8)
-    {
-        NV_PRINTF(LEVEL_ERROR, "%x %x %x %x %x %x %x %x\n",
-                  NVRM_TRACE_table[i + 0], NVRM_TRACE_table[i + 1],
-                  NVRM_TRACE_table[i + 2], NVRM_TRACE_table[i + 3],
-                  NVRM_TRACE_table[i + 4], NVRM_TRACE_table[i + 5],
-                  NVRM_TRACE_table[i + 6], NVRM_TRACE_table[i + 7]);
-    }
-    dumping = 0;
-}
-
-#endif  // USE_NVRM_TRACE
-
 #if NV_PRINTF_STRINGS_ALLOWED
 //
 // String matching helper for nvDbgRmMsgCheck.
@@ -1503,11 +1257,15 @@ nvDbgRmMsgCheck
         if (((nv_strnstr(filename, noun, nounlen) != NULL) ||
              (nv_strnstr(function, noun, nounlen) != NULL)) &&
             (linenumber >= startline) &&
-            (linenumber <= endline) &&
-            (debuglevel >= level))
+            (linenumber <= endline))
         {
             status = inc ? NVRM_MSG_PRINT : NVRM_MSG_HIDE;
             prefix = tempPrefix;
+
+            if (status == NVRM_MSG_PRINT && debuglevel < level)
+            {
+                status = NVRM_MSG_HIDE;
+            }
         }
 
         if (*p == '\0')
@@ -1530,7 +1288,7 @@ done:
 // RmMsgPrefix - Add the RmMsg prefix to the passed in string, returning
 // the length of the formatted string.
 //
-// Format: "NVRM file linenum function timestamp: "
+// Format: "NVRM: file linenum function timestamp: "
 //
 NvU32
 RmMsgPrefix
@@ -1553,7 +1311,8 @@ RmMsgPrefix
     {
         portStringCopy(str + len, totalLen - len, NV_PRINTF_PREFIX, sizeof(NV_PRINTF_PREFIX));
         len += sizeof(NV_PRINTF_PREFIX) - 1;
-        space = " ";
+        portStringCopy(str + len, totalLen - len, NV_PRINTF_PREFIX_SEPARATOR, sizeof(NV_PRINTF_PREFIX_SEPARATOR));
+        len += sizeof(NV_PRINTF_PREFIX_SEPARATOR) - 1;
     }
 
     if (prefix & NVRM_MSG_PREFIX_FILE)

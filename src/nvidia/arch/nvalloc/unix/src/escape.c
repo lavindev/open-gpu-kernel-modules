@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -46,6 +46,14 @@
 #include <class/cl003e.h> // NV01_MEMORY_SYSTEM
 #include <class/cl0071.h> // NV01_MEMORY_SYSTEM_OS_DESCRIPTOR
 
+#include "rmapi/client_resource.h"
+#include "nvlog/nvlog.h"
+#include <nv-ioctl-lockless-diag.h>
+
+#include <ctrl/ctrl00fd.h>
+
+#include <ctrl/ctrl00e0.h>
+
 #define NV_CTL_DEVICE_ONLY(nv)                 \
 {                                              \
     if (((nv)->flags & NV_FLAG_CONTROL) == 0)  \
@@ -62,6 +70,64 @@
         rmStatus = NV_ERR_INVALID_ARGUMENT;    \
         goto done;                             \
     }                                          \
+}
+
+static NV_STATUS RmGetDeviceFd(NVOS54_PARAMETERS *pApi, NvS32 *pFd,
+                               NvBool *pSkipDeviceRef)
+{
+    RMAPI_PARAM_COPY paramCopy;
+    void *pKernelParams;
+    NvU32 paramSize;
+    NV_STATUS status;
+
+    *pFd = -1;
+    *pSkipDeviceRef = NV_TRUE;
+
+    switch(pApi->cmd)
+    {
+        case NV00FD_CTRL_CMD_ATTACH_GPU:
+            paramSize = sizeof(NV00FD_CTRL_ATTACH_GPU_PARAMS);
+            break;
+        case NV00E0_CTRL_CMD_EXPORT_MEM:
+            paramSize = sizeof(NV00E0_CTRL_EXPORT_MEM_PARAMS);
+            break;
+        default:
+            return NV_OK;
+    }
+
+    RMAPI_PARAM_COPY_INIT(paramCopy, pKernelParams, pApi->params, paramSize, 1);
+
+    status = rmapiParamsAcquire(&paramCopy, NV_TRUE);
+    if (status != NV_OK)
+        return status;
+
+    switch(pApi->cmd)
+    {
+        case NV00FD_CTRL_CMD_ATTACH_GPU:
+            {
+                NV00FD_CTRL_ATTACH_GPU_PARAMS *pAttachGpuParams = pKernelParams;
+
+                *pSkipDeviceRef = NV_FALSE;
+                 *pFd = (NvS32)pAttachGpuParams->devDescriptor;
+            }
+            break;
+        case NV00E0_CTRL_CMD_EXPORT_MEM:
+            {
+                NV00E0_CTRL_EXPORT_MEM_PARAMS *pExportMemParams = pKernelParams;
+
+                // If hParent is client, no need to reference device.
+                *pSkipDeviceRef = (pExportMemParams->hParent == pApi->hClient);
+                *pFd = (NvS32)pExportMemParams->devDescriptor;
+            }
+            break;
+        default:
+            NV_ASSERT(0);
+            break;
+    }
+
+    NV_ASSERT(rmapiParamsRelease(&paramCopy) == NV_OK);
+
+    return status;
 }
 
 // Only return errors through pApi->status
@@ -91,6 +157,7 @@ static void RmCreateOsDescriptor(NVOS32_PARAMETERS *pApi, API_SECURITY_INFO secI
     pageCount = (1 + ((allocSize - 1) / os_page_size));
 
     writable = FLD_TEST_DRF(OS32, _ATTR2, _PROTECTION_USER, _READ_WRITE, pApi->data.AllocOsDesc.attr2);
+
     flags = FLD_SET_DRF_NUM(_LOCK_USER_PAGES, _FLAGS, _WRITE, writable, flags);
     rmStatus = os_lock_user_pages(pDescriptor, pageCount, &pPageArray, flags);
     if (rmStatus == NV_OK)
@@ -100,25 +167,11 @@ static void RmCreateOsDescriptor(NVOS32_PARAMETERS *pApi, API_SECURITY_INFO secI
     }
     else if (rmStatus == NV_ERR_INVALID_ADDRESS)
     {
-        rmStatus = os_lookup_user_io_memory(pDescriptor, pageCount,
-                &pPteArray, &pPageArray);
+        rmStatus = os_lookup_user_io_memory(pDescriptor, pageCount, &pPteArray);
         if (rmStatus == NV_OK)
         {
-            if (pPageArray != NULL)
-            {
-                pApi->data.AllocOsDesc.descriptor = (NvP64)(NvUPtr)pPageArray;
-                pApi->data.AllocOsDesc.descriptorType = NVOS32_DESCRIPTOR_TYPE_OS_PAGE_ARRAY;
-            }
-            else if (pPteArray != NULL)
-            {
-                pApi->data.AllocOsDesc.descriptor = (NvP64)(NvUPtr)pPteArray;
-                pApi->data.AllocOsDesc.descriptorType = NVOS32_DESCRIPTOR_TYPE_OS_IO_MEMORY;
-            }
-            else
-            {
-                NV_ASSERT_FAILED("unknown memory import type");
-                rmStatus = NV_ERR_NOT_SUPPORTED;
-            }
+            pApi->data.AllocOsDesc.descriptor = (NvP64)(NvUPtr)pPteArray;
+            pApi->data.AllocOsDesc.descriptorType = NVOS32_DESCRIPTOR_TYPE_OS_IO_MEMORY;
         }
     }
     if (rmStatus != NV_OK)
@@ -133,7 +186,7 @@ static void RmCreateOsDescriptor(NVOS32_PARAMETERS *pApi, API_SECURITY_INFO secI
             default:
                 break;
             case NVOS32_DESCRIPTOR_TYPE_OS_PAGE_ARRAY:
-                os_unlock_user_pages(pageCount, pPageArray);
+                os_unlock_user_pages(pageCount, pPageArray, flags);
                 break;
         }
     }
@@ -243,6 +296,7 @@ NV_STATUS RmIoctl(
     secInfo.privLevel = osIsAdministrator() ? RS_PRIV_LEVEL_USER_ROOT : RS_PRIV_LEVEL_USER;
     secInfo.paramLocation = PARAM_LOCATION_USER;
     secInfo.pProcessToken = NULL;
+    secInfo.gpuOsInfo = NULL;
     secInfo.clientOSInfo = nvfp->ctl_nvfp;
     if (secInfo.clientOSInfo == NULL)
         secInfo.clientOSInfo = nvfp;
@@ -282,9 +336,10 @@ NV_STATUS RmIoctl(
                     (!FLD_TEST_DRF(OS02, _FLAGS, _MAPPING, _NO_MAP, flags)) &&
                     (pParms->status == NV_OK))
                 {
-                    if (rm_create_mmap_context(nv, pParms->hRoot,
+                    if (rm_create_mmap_context(pParms->hRoot,
                             pParms->hObjectParent, pParms->hObjectNew,
                             pParms->pMemory, pParms->limit + 1, 0,
+                            NV_MEMORY_DEFAULT,
                             pApi->fd) != NV_OK)
                     {
                         NV_PRINTF(LEVEL_WARNING,
@@ -457,14 +512,18 @@ NV_STATUS RmIoctl(
                 goto done;
             }
 
+            // Don't allow userspace to override the caching type
+            pParms->flags = FLD_SET_DRF(OS33, _FLAGS, _CACHING_TYPE, _DEFAULT, pParms->flags);
             Nv04MapMemoryWithSecInfo(pParms, secInfo);
 
             if (pParms->status == NV_OK)
             {
-                pParms->status = rm_create_mmap_context(nv, pParms->hClient,
+                pParms->status = rm_create_mmap_context(pParms->hClient,
                                  pParms->hDevice, pParms->hMemory,
                                  pParms->pLinearAddress, pParms->length,
-                                 pParms->offset, pApi->fd);
+                                 pParms->offset,
+                                 DRF_VAL(OS33, _FLAGS, _CACHING_TYPE, pParms->flags),
+                                 pApi->fd);
                 if (pParms->status != NV_OK)
                 {
                     NVOS34_PARAMETERS params;
@@ -618,52 +677,6 @@ NV_STATUS RmIoctl(
             break;
         }
 
-        case NV_ESC_ALLOC_OS_EVENT:
-        {
-            nv_ioctl_alloc_os_event_t *pApi = data;
-
-            if (dataSize != sizeof(nv_ioctl_alloc_os_event_t))
-            {
-                rmStatus = NV_ERR_INVALID_ARGUMENT;
-                goto done;
-            }
-
-            pApi->Status = rm_alloc_os_event(pApi->hClient,
-                                             nvfp,
-                                             pApi->fd);
-            break;
-        }
-
-        case NV_ESC_FREE_OS_EVENT:
-        {
-            nv_ioctl_free_os_event_t *pApi = data;
-
-            if (dataSize != sizeof(nv_ioctl_free_os_event_t))
-            {
-                rmStatus = NV_ERR_INVALID_ARGUMENT;
-                goto done;
-            }
-
-            pApi->Status = rm_free_os_event(pApi->hClient, pApi->fd);
-            break;
-        }
-
-        case NV_ESC_RM_GET_EVENT_DATA:
-        {
-            NVOS41_PARAMETERS *pApi = data;
-
-            if (dataSize != sizeof(NVOS41_PARAMETERS))
-            {
-                rmStatus = NV_ERR_INVALID_ARGUMENT;
-                goto done;
-            }
-
-            pApi->status = rm_get_event_data(nvfp,
-                                             pApi->pEvent,
-                                             &pApi->MoreEvents);
-            break;
-        }
-
         case NV_ESC_STATUS_CODE:
         {
             nv_state_t *pNv;
@@ -695,6 +708,10 @@ NV_STATUS RmIoctl(
         case NV_ESC_RM_CONTROL:
         {
             NVOS54_PARAMETERS *pApi = data;
+            void *priv = NULL;
+            nv_file_private_t *dev_nvfp = NULL;
+            NvS32 fd;
+            NvBool bSkipDeviceRef;
 
             NV_CTL_DEVICE_ONLY(nv);
 
@@ -704,7 +721,51 @@ NV_STATUS RmIoctl(
                 goto done;
             }
 
+            rmStatus = RmGetDeviceFd(pApi, &fd, &bSkipDeviceRef);
+            if (rmStatus != NV_OK)
+            {
+                goto done;
+            }
+
+            if (!bSkipDeviceRef)
+            {
+                dev_nvfp = nv_get_file_private(fd, NV_FALSE, &priv);
+                if (dev_nvfp == NULL)
+                {
+                    rmStatus = NV_ERR_INVALID_DEVICE;
+                    goto done;
+                }
+
+                // Check to avoid cyclic dependency with NV_ESC_REGISTER_FD
+                if (!portAtomicCompareAndSwapU32(&dev_nvfp->register_or_refcount,
+                                                 NVFP_TYPE_REFCOUNTED,
+                                                 NVFP_TYPE_NONE))
+                {
+                    // Is this already refcounted...
+                    if (dev_nvfp->register_or_refcount != NVFP_TYPE_REFCOUNTED)
+                    {
+                        nv_put_file_private(priv);
+                        rmStatus = NV_ERR_IN_USE;
+                        goto done;
+                    }
+                }
+
+                secInfo.gpuOsInfo = priv;
+            }
+
             Nv04ControlWithSecInfo(pApi, secInfo);
+
+            if ((pApi->status != NV_OK) && (priv != NULL))
+            {
+                //
+                // No need to reset `register_or_refcount` as it might be set
+                // for previous successful calls. We let it clear with FD close.
+                //
+                nv_put_file_private(priv);
+
+                secInfo.gpuOsInfo = NULL;
+            }
+
             break;
         }
 
@@ -733,6 +794,40 @@ NV_STATUS RmIoctl(
             break;
         }
 
+        case NV_ESC_RM_LOCKLESS_DIAGNOSTIC:
+        {
+            NV_LOCKLESS_DIAGNOSTIC_PARAMS *pParams = data;
+
+            NV_CTL_DEVICE_ONLY(nv);
+
+            if (!osIsAdministrator())
+            {
+                rmStatus = NV_ERR_INSUFFICIENT_PERMISSIONS;
+                pParams->status = rmStatus;
+                goto done;
+            }
+
+            switch (pParams->cmd)
+            {
+                // Do not use NVOC _DISPATCH here as it dereferences NULL RmClientResource*
+                case NV0000_CTRL_CMD_NVD_GET_NVLOG_INFO:
+                    rmStatus = cliresCtrlCmdNvdGetNvlogInfo_IMPL(NULL, &pParams->params.getNvlogInfo);
+                    break;
+                case NV0000_CTRL_CMD_NVD_GET_NVLOG_BUFFER_INFO:
+                    rmStatus = cliresCtrlCmdNvdGetNvlogBufferInfo_IMPL(NULL, &pParams->params.getNvlogBufferInfo);
+                    break;
+                case NV0000_CTRL_CMD_NVD_GET_NVLOG:
+                    rmStatus = cliresCtrlCmdNvdGetNvlog_IMPL(NULL, &pParams->params.getNvlog);
+                    break;
+                default:
+                    rmStatus = NV_ERR_NOT_SUPPORTED;
+                    break;
+            }
+
+            pParams->status = rmStatus;
+            goto done;
+        }
+
         case NV_ESC_REGISTER_FD:
         {
             nv_ioctl_register_fd_t *params = data;
@@ -746,7 +841,7 @@ NV_STATUS RmIoctl(
             }
 
             // LOCK: acquire API lock
-            rmStatus = rmApiLockAcquire(API_LOCK_FLAGS_NONE, RM_LOCK_MODULES_OSAPI);
+            rmStatus = rmapiLockAcquire(API_LOCK_FLAGS_NONE, RM_LOCK_MODULES_OSAPI);
             if (rmStatus != NV_OK)
                 goto done;
 
@@ -754,7 +849,7 @@ NV_STATUS RmIoctl(
             if (nvfp->ctl_nvfp != NULL)
             {
                 // UNLOCK: release API lock
-                rmApiLockRelease();
+                rmapiLockRelease();
                 rmStatus = NV_ERR_INVALID_STATE;
                 goto done;
             }
@@ -771,7 +866,7 @@ NV_STATUS RmIoctl(
             if (ctl_nvfp == NULL)
             {
                 // UNLOCK: release API lock
-                rmApiLockRelease();
+                rmapiLockRelease();
                 rmStatus = NV_ERR_INVALID_ARGUMENT;
                 goto done;
             }
@@ -782,8 +877,20 @@ NV_STATUS RmIoctl(
             {
                 nv_put_file_private(priv);
                 // UNLOCK: release API lock
-                rmApiLockRelease();
+                rmapiLockRelease();
                 rmStatus = NV_ERR_INVALID_ARGUMENT;
+                goto done;
+            }
+
+            // Check to avoid cyclic dependency with device refcounting
+            if (!portAtomicCompareAndSwapU32(&nvfp->register_or_refcount,
+                                             NVFP_TYPE_REGISTERED,
+                                             NVFP_TYPE_NONE))
+            {
+                nv_put_file_private(priv);
+                // UNLOCK: release API lock
+                rmapiLockRelease();
+                rmStatus = NV_ERR_IN_USE;
                 goto done;
             }
 
@@ -798,7 +905,7 @@ NV_STATUS RmIoctl(
             nvfp->ctl_nvfp_priv = priv;
 
             // UNLOCK: release API lock
-            rmApiLockRelease();
+            rmapiLockRelease();
 
             // NOTE: nv_put_file_private(priv) is not called here.  It MUST be
             // called during cleanup of this nvfp.

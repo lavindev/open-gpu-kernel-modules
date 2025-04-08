@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -32,6 +32,7 @@
 #include "deprecated/rmapi_deprecated.h"
 #include "gpu/mem_mgr/mem_utils.h"
 #include "core/system.h"
+#include "ctrl/ctrl0000/ctrl0000gpu.h"
 
 #include "gpu/mem_sys/kern_mem_sys.h"
 
@@ -40,13 +41,57 @@
 
 #include "class/cl003e.h" // NV01_MEMORY_SYSTEM
 
+void sysmemSetCacheAttrib
+(
+    NV_MEMORY_ALLOCATION_PARAMS     *pAllocData,
+    NvU32                           *pCpuCacheAttrib,
+    NvU32                           *pGpuCacheAttrib
+)
+{
+    //
+    // For system memory default to GPU uncached. GPU caching is different from
+    // the expected default memory model since it is not coherent.  Clients must
+    // understand this and handle any coherency requirements explicitly.
+    //
+    if (DRF_VAL(OS32, _ATTR2, _GPU_CACHEABLE, pAllocData->attr2) ==
+        NVOS32_ATTR2_GPU_CACHEABLE_DEFAULT)
+    {
+        pAllocData->attr2 = FLD_SET_DRF(OS32, _ATTR2, _GPU_CACHEABLE, _NO,
+                                        pAllocData->attr2);
+    }
+
+    if (DRF_VAL(OS32, _ATTR2, _GPU_CACHEABLE, pAllocData->attr2) ==
+        NVOS32_ATTR2_GPU_CACHEABLE_YES)
+    {
+        *pGpuCacheAttrib = NV_MEMORY_CACHED;
+    }
+    else
+    {
+        *pGpuCacheAttrib = NV_MEMORY_UNCACHED;
+    }
+
+    if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_UNCACHED)
+        *pCpuCacheAttrib = NV_MEMORY_UNCACHED;
+    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_CACHED)
+        *pCpuCacheAttrib = NV_MEMORY_CACHED;
+    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_WRITE_COMBINE)
+        *pCpuCacheAttrib = NV_MEMORY_WRITECOMBINED;
+    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_WRITE_THROUGH)
+        *pCpuCacheAttrib = NV_MEMORY_CACHED;
+    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_WRITE_PROTECT)
+        *pCpuCacheAttrib = NV_MEMORY_CACHED;
+    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_WRITE_BACK)
+        *pCpuCacheAttrib = NV_MEMORY_CACHED;
+    else
+        *pCpuCacheAttrib = 0;
+}
+
 /*!
  * sysmemConstruct
  *
  * @brief
  *     This routine provides common allocation services used by the
  *     following heap allocation functions:
- *       NVOS32_FUNCTION_ALLOC_DEPTH_WIDTH_HEIGHT
  *       NVOS32_FUNCTION_ALLOC_SIZE
  *       NVOS32_FUNCTION_ALLOC_SIZE_RANGE
  *       NVOS32_FUNCTION_ALLOC_TILED_PITCH_HEIGHT
@@ -80,6 +125,7 @@ sysmemConstruct_IMPL
     NvU32 gpuCacheAttrib;
     NV_STATUS rmStatus = NV_OK;
     NvHandle hClient = pCallContext->pClient->hClient;
+    RmClient *pRmClient = dynamicCast(pCallContext->pClient, RmClient);
     NvHandle hParent = pCallContext->pResourceRef->pParentRef->hResource;
     NvU64 sizeOut;
     NvU64 offsetOut;
@@ -88,11 +134,13 @@ sysmemConstruct_IMPL
     NvU32 flags;
     StandardMemory *pStdMemory = staticCast(pSystemMemory, StandardMemory);
 
+    NV_ASSERT_OR_RETURN(pRmClient != NULL, NV_ERR_INVALID_CLIENT);
+
     // Copy-construction has already been done by the base Memory class
     if (RS_IS_COPY_CTOR(pParams))
         return NV_OK;
 
-    NV_CHECK_OK_OR_RETURN(LEVEL_ERROR, stdmemValidateParams(pGpu, hClient, pAllocData));
+    NV_CHECK_OK_OR_RETURN(LEVEL_ERROR, stdmemValidateParams(pGpu, pRmClient, pAllocData));
     NV_CHECK_OR_RETURN(LEVEL_ERROR,
                        DRF_VAL(OS32, _ATTR, _LOCATION, pAllocData->attr) != NVOS32_ATTR_LOCATION_VIDMEM &&
                            !(pAllocData->flags & NVOS32_ALLOC_FLAGS_VIRTUAL),
@@ -148,42 +196,7 @@ sysmemConstruct_IMPL
     sizeOut = pMemDesc->Size;
     pAllocData->limit = sizeOut - 1;
 
-    //
-    // For system memory default to GPU uncached.  GPU caching is different from
-    // the expected default memory model since it is not coherent.  Clients must
-    // understand this an handle any coherency requirements explicitly.
-    //
-    if (DRF_VAL(OS32, _ATTR2, _GPU_CACHEABLE, pAllocData->attr2) ==
-        NVOS32_ATTR2_GPU_CACHEABLE_DEFAULT)
-    {
-        pAllocData->attr2 = FLD_SET_DRF(OS32, _ATTR2, _GPU_CACHEABLE, _NO,
-                                        pAllocData->attr2);
-    }
-
-    if (DRF_VAL(OS32, _ATTR2, _GPU_CACHEABLE, pAllocData->attr2) ==
-        NVOS32_ATTR2_GPU_CACHEABLE_YES)
-    {
-        gpuCacheAttrib = NV_MEMORY_CACHED;
-    }
-    else
-    {
-        gpuCacheAttrib = NV_MEMORY_UNCACHED;
-    }
-
-    if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_UNCACHED)
-        Cache = NV_MEMORY_UNCACHED;
-    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_CACHED)
-        Cache = NV_MEMORY_CACHED;
-    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_WRITE_COMBINE)
-        Cache = NV_MEMORY_WRITECOMBINED;
-    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_WRITE_THROUGH)
-        Cache = NV_MEMORY_CACHED;
-    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_WRITE_PROTECT)
-        Cache = NV_MEMORY_CACHED;
-    else if (DRF_VAL(OS32, _ATTR, _COHERENCY, pAllocData->attr) == NVOS32_ATTR_COHERENCY_WRITE_BACK)
-        Cache = NV_MEMORY_CACHED;
-    else
-        Cache = 0;
+    sysmemSetCacheAttrib(pAllocData, &Cache, &gpuCacheAttrib);
 
     ct_assert(NVOS32_ATTR_COHERENCY_UNCACHED      == NVOS02_FLAGS_COHERENCY_UNCACHED);
     ct_assert(NVOS32_ATTR_COHERENCY_CACHED        == NVOS02_FLAGS_COHERENCY_CACHED);
@@ -210,9 +223,63 @@ sysmemConstruct_IMPL
 
     memdescSetFlag(pMemDesc, MEMDESC_FLAGS_SYSMEM_OWNED_BY_CLIENT, NV_TRUE);
 
+    if ((sysGetStaticConfig(SYS_GET_INSTANCE()))->bOsCCEnabled &&
+        gpuIsCCorApmFeatureEnabled(pGpu) &&
+        FLD_TEST_DRF(OS32, _ATTR2, _MEMORY_PROTECTION, _UNPROTECTED,
+                     pAllocData->attr2))
+        {
+            memdescSetFlag(pMemDesc, MEMDESC_FLAGS_ALLOC_IN_UNPROTECTED_MEMORY,
+                           NV_TRUE);
+        }
+
     memdescSetGpuCacheAttrib(pMemDesc, gpuCacheAttrib);
 
-    rmStatus = memdescAlloc(pMemDesc);
+    if (FLD_TEST_DRF(OS32, _ATTR2, _FIXED_NUMA_NODE_ID, _YES, pAllocData->attr2))
+    {
+
+        if (memdescGetFlag(pMemDesc, MEMDESC_FLAGS_ALLOC_IN_UNPROTECTED_MEMORY))
+        {
+            NV_PRINTF(LEVEL_ERROR, "Cannot specify NUMA node in unprotected memory.\n");
+            memdescDestroy(pMemDesc);
+            rmStatus = NV_ERR_INVALID_ARGUMENT;
+            goto failed;
+        }
+
+        if ((pGpu->cpuNumaNodeId != NV0000_CTRL_NO_NUMA_NODE) && 
+            (pAllocData->numaNode != pGpu->cpuNumaNodeId))
+        {
+            NV_PRINTF(LEVEL_ERROR, "NUMA node mismatch. Requested node: %u CPU node: %u\n",
+                      pAllocData->numaNode, pGpu->cpuNumaNodeId);
+            memdescDestroy(pMemDesc);
+            rmStatus = NV_ERR_INVALID_ARGUMENT;
+            goto failed;
+        }
+
+        memdescSetNumaNode(pMemDesc, pAllocData->numaNode);
+        //
+        // In order to allow EGM memory allocation to specify
+        // the page granularity of the physical allocation
+        // we need to force set the page size here.
+        //
+        // The expectation is that the EGM NUMA allocator is able to support any requested pagesize
+        // and that subsequent memdesc pagesize set requests will NOP as the pagesize matches.
+        //
+        if (memdescIsEgm(pMemDesc))
+        {
+            RM_ATTR_PAGE_SIZE pageSizeAttr = dmaNvos32ToPageSizeAttr(pAllocData->attr, pAllocData->attr2);
+            rmStatus = memmgrSetMemDescPageSize_HAL(pGpu, GPU_GET_MEMORY_MANAGER(pGpu), pMemDesc,
+                                                    AT_GPU, pageSizeAttr);
+            if (rmStatus != NV_OK)
+            {
+                NV_PRINTF(LEVEL_ERROR, "Failed to set memdesc page size for EGM.\n");
+                memdescDestroy(pMemDesc);
+                goto failed;
+            }
+        }
+    }
+
+    memdescTagAlloc(rmStatus, NV_FB_ALLOC_RM_INTERNAL_OWNER_UNNAMED_TAG_132, 
+                    pMemDesc);
     if (rmStatus != NV_OK)
     {
         NV_PRINTF(LEVEL_ERROR,
@@ -274,6 +341,7 @@ sysmemConstruct_IMPL
     else if ((FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _BIG, pAllocData->attr) ||
               FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _HUGE, pAllocData->attr)) &&
               FLD_TEST_DRF(OS32, _ATTR, _PHYSICALITY, _NONCONTIGUOUS, pAllocData->attr) &&
+              !memdescIsEgm(pMemDesc) &&
              (stdmemGetSysmemPageSize_HAL(pGpu, pStdMemory) == RM_PAGE_SIZE))
     {
         NV_PRINTF(LEVEL_ERROR,
@@ -477,8 +545,8 @@ sysmemAllocResources
     // While replaying a trace, it is possible for the playback OS to have a smaller page size
     // than the capture OS so if we're running a replay where the requested page size is larger,
     // assume this is a contiguous piece of memory, if contiguity is not specified.
-    // 
-    if (FLD_TEST_DRF(OS32, _ATTR, _PHYSICALITY, _DEFAULT, pVidHeapAlloc->attr))
+    //
+    if (RMCFG_FEATURE_PLATFORM_MODS && FLD_TEST_DRF(OS32, _ATTR, _PHYSICALITY, _DEFAULT, pVidHeapAlloc->attr))
     {
         if ((FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _BIG, pVidHeapAlloc->attr) ||
              FLD_TEST_DRF(OS32, _ATTR, _PAGE_SIZE, _HUGE, pVidHeapAlloc->attr)) &&

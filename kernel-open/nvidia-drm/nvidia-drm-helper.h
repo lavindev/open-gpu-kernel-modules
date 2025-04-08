@@ -35,6 +35,40 @@
 #include <drm/drm_drv.h>
 #endif
 
+#if defined(NV_DRM_ALPHA_BLENDING_AVAILABLE) || defined(NV_DRM_ROTATION_AVAILABLE)
+/* For DRM_ROTATE_* , DRM_REFLECT_* */
+#include <drm/drm_blend.h>
+#endif
+
+#if defined(NV_DRM_ROTATION_AVAILABLE) || \
+    defined(NV_DRM_COLOR_CTM_3X4_PRESENT) || \
+    defined(NV_DRM_COLOR_LUT_PRESENT)
+/*
+ * For DRM_MODE_ROTATE_*, DRM_MODE_REFLECT_*, struct drm_color_ctm_3x4, and
+ * struct drm_color_lut.
+ */
+#include <uapi/drm/drm_mode.h>
+#endif
+
+#if defined(NV_DRM_ROTATION_AVAILABLE)
+/*
+ * 19-05-2017 c2c446ad29437bb92b157423c632286608ebd3ec has added
+ * DRM_MODE_ROTATE_* and DRM_MODE_REFLECT_* to UAPI and removed
+ * DRM_ROTATE_* and DRM_REFLECT_*
+ */
+#if !defined(DRM_MODE_ROTATE_0)
+#define DRM_MODE_ROTATE_0       DRM_ROTATE_0
+#define DRM_MODE_ROTATE_90      DRM_ROTATE_90
+#define DRM_MODE_ROTATE_180     DRM_ROTATE_180
+#define DRM_MODE_ROTATE_270     DRM_ROTATE_270
+#define DRM_MODE_REFLECT_X      DRM_REFLECT_X
+#define DRM_MODE_REFLECT_Y      DRM_REFLECT_Y
+#define DRM_MODE_ROTATE_MASK    DRM_ROTATE_MASK
+#define DRM_MODE_REFLECT_MASK   DRM_REFLECT_MASK
+#endif
+
+#endif //NV_DRM_ROTATION_AVAILABLE
+
 /*
  * drm_dev_put() is added by commit 9a96f55034e41b4e002b767e9218d55f03bdff7d
  * (2017-09-26) and drm_dev_unref() is removed by
@@ -277,11 +311,81 @@ int nv_drm_atomic_helper_disable_all(struct drm_device *dev,
     for_each_plane_in_state(__state, plane, plane_state, __i)
 #endif
 
-static inline struct drm_crtc *nv_drm_crtc_find(struct drm_device *dev,
-    uint32_t id)
+/*
+ * for_each_new_plane_in_state() was added by kernel commit
+ * 581e49fe6b411f407102a7f2377648849e0fa37f which was Signed-off-by:
+ *      Maarten Lankhorst <maarten.lankhorst@linux.intel.com>
+ *      Daniel Vetter <daniel.vetter@ffwll.ch>
+ *
+ * This commit also added the old_state and new_state pointers to
+ * __drm_planes_state. Because of this, the best that can be done on kernel
+ * versions without this macro is for_each_plane_in_state.
+ */
+
+/**
+ * nv_drm_for_each_new_plane_in_state - iterate over all planes in an atomic update
+ * @__state: &struct drm_atomic_state pointer
+ * @plane: &struct drm_plane iteration cursor
+ * @new_plane_state: &struct drm_plane_state iteration cursor for the new state
+ * @__i: int iteration cursor, for macro-internal use
+ *
+ * This iterates over all planes in an atomic update, tracking only the new
+ * state. This is useful in enable functions, where we need the new state the
+ * hardware should be in when the atomic commit operation has completed.
+ */
+#if !defined(for_each_new_plane_in_state)
+#define nv_drm_for_each_new_plane_in_state(__state, plane, new_plane_state, __i) \
+    nv_drm_for_each_plane_in_state(__state, plane, new_plane_state, __i)
+#else
+#define nv_drm_for_each_new_plane_in_state(__state, plane, new_plane_state, __i) \
+    for_each_new_plane_in_state(__state, plane, new_plane_state, __i)
+#endif
+
+static inline struct drm_connector *
+nv_drm_connector_lookup(struct drm_device *dev, struct drm_file *filep,
+                        uint32_t id)
+{
+#if !defined(NV_DRM_CONNECTOR_LOOKUP_PRESENT)
+    return drm_connector_find(dev, id);
+#elif defined(NV_DRM_MODE_OBJECT_FIND_HAS_FILE_PRIV_ARG)
+    return drm_connector_lookup(dev, filep, id);
+#else
+    return drm_connector_lookup(dev, id);
+#endif
+}
+
+static inline void nv_drm_connector_put(struct drm_connector *connector)
+{
+#if defined(NV_DRM_CONNECTOR_PUT_PRESENT)
+    drm_connector_put(connector);
+#elif defined(NV_DRM_CONNECTOR_LOOKUP_PRESENT)
+    drm_connector_unreference(connector);
+#endif
+}
+
+static inline void nv_drm_property_blob_put(struct drm_property_blob *blob)
+{
+#if defined(NV_DRM_PROPERTY_BLOB_PUT_PRESENT)
+    drm_property_blob_put(blob);
+#else
+    drm_property_unreference_blob(blob);
+#endif
+}
+
+static inline void nv_drm_property_blob_get(struct drm_property_blob *blob)
+{
+#if defined(NV_DRM_PROPERTY_BLOB_PUT_PRESENT)
+    drm_property_blob_get(blob);
+#else
+    drm_property_reference_blob(blob);
+#endif
+}
+
+static inline struct drm_crtc *
+nv_drm_crtc_find(struct drm_device *dev, struct drm_file *filep, uint32_t id)
 {
 #if defined(NV_DRM_MODE_OBJECT_FIND_HAS_FILE_PRIV_ARG)
-    return drm_crtc_find(dev, NULL /* file_priv */, id);
+    return drm_crtc_find(dev, filep, id);
 #else
     return drm_crtc_find(dev, id);
 #endif
@@ -294,6 +398,30 @@ static inline struct drm_encoder *nv_drm_encoder_find(struct drm_device *dev,
     return drm_encoder_find(dev, NULL /* file_priv */, id);
 #else
     return drm_encoder_find(dev, id);
+#endif
+}
+
+#if defined(NV_DRM_DRM_AUTH_H_PRESENT)
+#include <drm/drm_auth.h>
+#endif
+#if defined(NV_DRM_DRM_FILE_H_PRESENT)
+#include <drm/drm_file.h>
+#endif
+
+/*
+ * drm_file_get_master() added by commit 56f0729a510f ("drm: protect drm_master
+ * pointers in drm_lease.c") in v5.15 (2021-07-20)
+ */
+static inline struct drm_master *nv_drm_file_get_master(struct drm_file *filep)
+{
+#if defined(NV_DRM_FILE_GET_MASTER_PRESENT)
+    return drm_file_get_master(filep);
+#else
+    if (filep->master) {
+        return drm_master_get(filep->master);
+    } else {
+        return NULL;
+    }
 #endif
 }
 
@@ -506,6 +634,44 @@ static inline int nv_drm_format_num_planes(uint32_t format)
 #endif
 
 #endif /* defined(NV_DRM_FORMAT_MODIFIERS_PRESENT) */
+
+/*
+ * DRM_UNLOCKED was removed with commit 2798ffcc1d6a ("drm: Remove locking for
+ * legacy ioctls and DRM_UNLOCKED") in v6.8, but it was previously made
+ * implicit for all non-legacy DRM driver IOCTLs since Linux v4.10 commit
+ * fa5386459f06 "drm: Used DRM_LEGACY for all legacy functions" (Linux v4.4
+ * commit ea487835e887 "drm: Enforce unlocked ioctl operation for kms driver
+ * ioctls" previously did it only for drivers that set the DRM_MODESET flag), so
+ * it was effectively a no-op anyway.
+ */
+#if !defined(NV_DRM_UNLOCKED_IOCTL_FLAG_PRESENT)
+#define DRM_UNLOCKED 0
+#endif
+
+/*
+ * struct drm_color_ctm_3x4 was added by commit 6872a189be50 ("drm/amd/display:
+ * Add 3x4 CTM support for plane CTM") in v6.8. For backwards compatibility,
+ * define it when not present.
+ */
+#if !defined(NV_DRM_COLOR_CTM_3X4_PRESENT)
+struct drm_color_ctm_3x4 {
+    __u64 matrix[12];
+};
+#endif
+
+/*
+ * struct drm_color_lut was added by commit 5488dc16fde7 ("drm: introduce pipe
+ * color correction properties") in v4.6. For backwards compatibility, define it
+ * when not present.
+ */
+#if !defined(NV_DRM_COLOR_LUT_PRESENT)
+struct drm_color_lut {
+    __u16 red;
+    __u16 green;
+    __u16 blue;
+    __u16 reserved;
+};
+#endif
 
 /*
  * drm_vma_offset_exact_lookup_locked() were added

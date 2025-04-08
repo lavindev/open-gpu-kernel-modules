@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -40,12 +40,15 @@
 #if !defined(SRT_BUILD)
 // These files are not found on SRT builds
 #include "os/os.h"
+#define PMA_DEBUG 1
 #else
+// disable PMA debug prints on SRTs to not bloat the logs
+#define PMA_DEBUG 0
 NV_STATUS pmaNumaAllocate
 (
     PMA                    *pPma,
     NvLength                allocationCount,
-    NvU32                   pageSize,
+    NvU64                   pageSize,
     PMA_ALLOCATION_OPTIONS *allocationOptions,
     NvU64                  *pPages
 )
@@ -70,7 +73,7 @@ void pmaNumaSetReclaimSkipThreshold(PMA *pPma, NvU32 data)
 }
 #endif
 
-typedef NV_STATUS (*scanFunc)(void *, NvU64, NvU64, NvU64, NvU64, NvU64*, NvU32, NvU64, NvU64*, NvBool);
+typedef NV_STATUS (*scanFunc)(void *, NvU64, NvU64, NvU64, NvU64, NvU64*, NvU64, NvU64, NvU64, NvU32, NvU64*, NvBool, NvBool);
 
 static void
 _pmaRollback
@@ -79,14 +82,14 @@ _pmaRollback
     NvU64         *pPages,
     NvU32          failCount,
     NvU32          failFrame,
-    NvU32          pageSize,
+    NvU64          pageSize,
     PMA_PAGESTATUS oldState
 )
 {
     NvU32 framesPerPage, regId, i, j;
     NvU64 frameNum, addrBase;
 
-    framesPerPage = pageSize >> PMA_PAGE_SHIFT;
+    framesPerPage = (NvU32)(pageSize >> PMA_PAGE_SHIFT);
     if (failCount != 0)
     {
         for(i = 0; i < failCount; i++)
@@ -97,9 +100,10 @@ _pmaRollback
 
             for (j = 0; j < framesPerPage; j++)
             {
-                pPma->pMapInfo->pmaMapChangeState(pPma->pRegions[regId], (frameNum + j), oldState);
+                pPma->pMapInfo->pmaMapChangeStateAttrib(pPma->pRegions[regId], (frameNum + j), oldState, STATE_MASK);
             }
         }
+        pPma->pStatsUpdateCb(pPma->pStatsUpdateCtx, pPma->pmaStats.numFreeFrames);
     }
 
     if (failFrame != 0)
@@ -110,9 +114,20 @@ _pmaRollback
         frameNum = PMA_ADDR2FRAME(pPages[failCount], addrBase);
         for(i = 0; i < failFrame; i++)
         {
-            pPma->pMapInfo->pmaMapChangeState(pPma->pRegions[regId], (frameNum + i), oldState);
+            pPma->pMapInfo->pmaMapChangeStateAttrib(pPma->pRegions[regId], (frameNum + i), oldState, STATE_MASK);
         }
+        pPma->pStatsUpdateCb(pPma->pStatsUpdateCtx, pPma->pmaStats.numFreeFrames);
     }
+}
+
+static inline void
+_pmaDefaultStatsCallback
+(
+    void *pCtx,
+    NvU64 freeFrames
+)
+{
+    return;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -208,10 +223,9 @@ pmaInitialize(PMA *pPma, NvU32 initFlags)
     //
     pMapInfo->pmaMapInit = pmaRegmapInit;
     pMapInfo->pmaMapDestroy = pmaRegmapDestroy;
-    pMapInfo->pmaMapChangeState = pmaRegmapChangeState;
     pMapInfo->pmaMapChangeStateAttrib = pmaRegmapChangeStateAttrib;
-    pMapInfo->pmaMapChangeStateAttribEx = pmaRegmapChangeStateAttribEx;
     pMapInfo->pmaMapChangePageStateAttrib = pmaRegmapChangePageStateAttrib;
+    pMapInfo->pmaMapChangeBlockStateAttrib = pmaRegmapChangeBlockStateAttrib;
     pMapInfo->pmaMapRead = pmaRegmapRead;
     pMapInfo->pmaMapScanContiguous = pmaRegmapScanContiguous;
     pMapInfo->pmaMapScanDiscontiguous = pmaRegmapScanDiscontiguous;
@@ -239,33 +253,21 @@ pmaInitialize(PMA *pPma, NvU32 initFlags)
         }
         pPma->bNuma = !!(initFlags & PMA_INIT_NUMA);
 
-        // If we want to run with address tree instead of regmap
-        if (initFlags & PMA_INIT_ADDRTREE)
-        {
-            pMapInfo->pmaMapInit = pmaAddrtreeInit;
-            pMapInfo->pmaMapDestroy = pmaAddrtreeDestroy;
-            pMapInfo->pmaMapChangeState = pmaAddrtreeChangeState;
-            pMapInfo->pmaMapChangeStateAttrib = pmaAddrtreeChangeStateAttrib;
-            pMapInfo->pmaMapChangeStateAttribEx = pmaAddrtreeChangeStateAttribEx;
-            pMapInfo->pmaMapChangePageStateAttrib = pmaAddrtreeChangePageStateAttrib;
-            pMapInfo->pmaMapRead = pmaAddrtreeRead;
-            pMapInfo->pmaMapScanContiguous = pmaAddrtreeScanContiguous;
-            pMapInfo->pmaMapScanDiscontiguous = pmaAddrtreeScanDiscontiguous;
-            pMapInfo->pmaMapGetSize = pmaAddrtreeGetSize;
-            pMapInfo->pmaMapGetLargestFree = pmaAddrtreeGetLargestFree;
-            pMapInfo->pmaMapScanContiguousNumaEviction = pmaAddrtreeScanContiguousNumaEviction;
-            pMapInfo->pmaMapGetEvictingFrames = pmaAddrtreeGetEvictingFrames;
-            pMapInfo->pmaMapSetEvictingFrames = pmaAddrtreeSetEvictingFrames;
-            NV_PRINTF(LEVEL_WARNING, "Going to use addrtree for PMA init!!\n");
-        }
+        pPma->bNumaAutoOnline = !!(initFlags & PMA_INIT_NUMA_AUTO_ONLINE);
     }
     pPma->pMapInfo = pMapInfo;
 
     pPma->pmaStats.numFreeFrames = 0;
     pPma->pmaStats.num2mbPages = 0;
     pPma->pmaStats.numFree2mbPages = 0;
+    pPma->pmaStats.numFreeFramesProtected = 0;
+    pPma->pmaStats.num2mbPagesProtected = 0;
+    pPma->pmaStats.numFree2mbPagesProtected = 0;
     pPma->regSize = 0;
     portAtomicSetSize(&pPma->initScrubbing, PMA_SCRUB_INITIALIZE);
+
+    pPma->pStatsUpdateCtx = NULL;
+    pPma->pStatsUpdateCb = _pmaDefaultStatsCallback;
 
     // OK not to take lock since it's initialization
     NV_ASSERT(pmaStateCheck(pPma));
@@ -532,13 +534,15 @@ pmaRegisterRegion
                                                            PMA_SCRUB_INITIALIZE);
     }
 
-    status = pmaRegisterBlacklistInfo(pPma, physBase, pBlacklistPageBase, blacklistCount);
+    status = pmaRegisterBlacklistInfo(pPma, physBase, pBlacklistPageBase, blacklistCount, NV_TRUE);
     if (status != NV_OK)
     {
         pPma->pMapInfo->pmaMapDestroy(pMap);
         portMemFree(pPma->pRegDescriptors[id]);
         return status;
     }
+
+    pPma->pStatsUpdateCb(pPma->pStatsUpdateCtx, pPma->pmaStats.numFreeFrames);
 
     NV_PRINTF(LEVEL_INFO, "Registered region:\n");
     pmaRegionPrint(pPma, pPma->pRegDescriptors[id], pPma->pRegions[id]);
@@ -547,24 +551,27 @@ pmaRegisterRegion
     return status;
 }
 
-
 NV_STATUS
 pmaAllocatePages
 (
     PMA                    *pPma,
     NvLength                allocationCount,
-    NvU32                   pageSize,
+    NvU64                   pageSize,
     PMA_ALLOCATION_OPTIONS *allocationOptions,
     NvU64                  *pPages
 )
 {
     NvS32 regionList[PMA_REGION_SIZE];
     NV_STATUS status, prediction;
-    NvU32 flags, evictFlag, contigFlag, persistFlag, alignFlag, pinFlag, rangeFlag, blacklistOffFlag, partialFlag, skipScrubFlag;
+    NvU32 flags;
+    NvBool evictFlag, contigFlag, persistFlag, alignFlag, pinFlag, rangeFlag, blacklistOffFlag, partialFlag, skipScrubFlag, reverseFlag;
+
     NvU32 regId, regionIdx;
     NvU64 numPagesAllocatedThisTime, numPagesLeftToAllocate, numPagesAllocatedSoFar;
     NvU64 addrBase, addrLimit;
     NvU64 rangeStart, rangeEnd;
+    NvU64 stride = 0;
+    NvU32 strideStart = 0;
     NvU64 *curPages;
     NvBool blacklistOffPerRegion[PMA_REGION_SIZE]={NV_FALSE};
     NvU64 blacklistOffAddrStart[PMA_REGION_SIZE] = {0}, blacklistOffRangeSize[PMA_REGION_SIZE] = {0};
@@ -574,7 +581,8 @@ pmaAllocatePages
     scanFunc useFunc;
     PMA_PAGESTATUS pinOption;
     NvU64 alignment = pageSize;
-    NvU32 framesPerPage  = pageSize >> PMA_PAGE_SHIFT;
+    NvU32 framesPerPage;
+    NvU64 numFramesToAllocateTotal;
 
     //
     // A boolean indicating if we should try to evict. We at most try eviction once per call
@@ -582,8 +590,6 @@ pmaAllocatePages
     //
     NvBool tryEvict = NV_TRUE;
     NvBool tryAlloc = NV_TRUE;
-
-    const NvU64 numFramesToAllocateTotal = framesPerPage * allocationCount;
 
     if (pPma == NULL || pPages == NULL || allocationCount == 0
         || (pageSize != _PMA_64KB && pageSize != _PMA_128KB && pageSize != _PMA_2MB && pageSize != _PMA_512MB)
@@ -596,7 +602,7 @@ pmaAllocatePages
         if (allocationCount == 0)
             NV_PRINTF(LEVEL_ERROR, "count == 0\n");
         if (pageSize != _PMA_64KB && pageSize != _PMA_128KB && pageSize != _PMA_2MB && pageSize != _PMA_512MB)
-            NV_PRINTF(LEVEL_ERROR, "pageSize=0x%x (not 64K, 128K, 2M, or 512M)\n", pageSize);
+            NV_PRINTF(LEVEL_ERROR, "pageSize=0x%llx (not 64K, 128K, 2M, or 512M)\n", pageSize);
         if (allocationOptions == NULL)
             NV_PRINTF(LEVEL_ERROR, "NULL allocationOptions\n");
         return NV_ERR_INVALID_ARGUMENT;
@@ -612,10 +618,17 @@ pmaAllocatePages
     blacklistOffFlag = !!(flags & PMA_ALLOCATE_TURN_BLACKLIST_OFF);
     partialFlag = !!(flags & PMA_ALLOCATE_ALLOW_PARTIAL);
     skipScrubFlag = !!(flags & PMA_ALLOCATE_NO_ZERO);
+    reverseFlag = !!(flags & PMA_ALLOCATE_REVERSE_ALLOC);
 
     // Fork out new code path for NUMA sub-allocation from OS
     if (pPma->bNuma)
     {
+        if (reverseFlag)
+        {
+            NV_PRINTF(LEVEL_ERROR, "Reverse allocation not supported on NUMA.\n");
+            return NV_ERR_INVALID_ARGUMENT;
+        }
+
         return pmaNumaAllocate(pPma, allocationCount, pageSize, allocationOptions, pPages);
     }
 
@@ -650,7 +663,7 @@ pmaAllocatePages
           || !NV_IS_ALIGNED((allocationOptions->physEnd + 1), pageSize)))
     {
         NV_PRINTF(LEVEL_WARNING,
-                "base [0x%llx] or limit [0x%llx] not aligned to page size 0x%x\n",
+                "base [0x%llx] or limit [0x%llx] not aligned to page size 0x%llx\n",
                 allocationOptions->physBegin,
                 allocationOptions->physEnd + 1,
                 pageSize);
@@ -676,11 +689,14 @@ pmaAllocatePages
         if (!contigFlag && alignment > pageSize)
         {
             NV_PRINTF(LEVEL_WARNING,
-                "alignment [%llx] larger than the pageSize [%x] not supported for non-contiguous allocs\n",
+                "alignment [%llx] larger than the pageSize [%llx] not supported for non-contiguous allocs\n",
                 alignment, pageSize);
             return NV_ERR_INVALID_ARGUMENT;
         }
     }
+
+    framesPerPage  = (NvU32)(pageSize >> PMA_PAGE_SHIFT);
+    numFramesToAllocateTotal = framesPerPage * allocationCount;
 
     pinOption = pinFlag ? STATE_PIN : STATE_UNPIN;
     pinOption |= persistFlag ? ATTRIB_PERSISTENT : 0;
@@ -709,7 +725,7 @@ pmaAllocatePages
         }
     }
 
-    tryEvict = (evictFlag == 1);
+    tryEvict = evictFlag;
 
 pmaAllocatePages_retry:
     //
@@ -717,10 +733,12 @@ pmaAllocatePages_retry:
     // after checking the scrubber so any pages allocated so far are not guaranteed
     // to be there any more. Restart from scratch.
     //
-    NV_PRINTF(LEVEL_INFO, "Attempt %s allocation of 0x%llx pages of size 0x%x "
+#if PMA_DEBUG
+    NV_PRINTF(LEVEL_INFO, "Attempt %s allocation of 0x%llx pages of size 0x%llx "
                           "(0x%x frames per page)\n",
                           contigFlag ? "contiguous" : "discontiguous",
                           (NvU64)allocationCount, pageSize, framesPerPage);
+#endif
 
     // Check if scrubbing is done before allocating each time before we retry
     if (bScrubOnFree)
@@ -748,6 +766,8 @@ pmaAllocatePages_retry:
 
     for (regionIdx = 0; regionIdx < pPma->regSize; regionIdx++)
     {
+        MEMORY_PROTECTION prot;
+
         if (regionList[regionIdx] == -1)
         {
             status = NV_ERR_NO_MEMORY;
@@ -760,6 +780,8 @@ pmaAllocatePages_retry:
 
         addrBase = pPma->pRegDescriptors[regId]->base;
         addrLimit = pPma->pRegDescriptors[regId]->limit;
+        prot = pPma->pRegDescriptors[regId]->bProtected ? MEMORY_PROTECTION_PROTECTED :
+                                                          MEMORY_PROTECTION_UNPROTECTED;
 
         //
         // If the start address of the range is less than the region's base
@@ -802,7 +824,7 @@ pmaAllocatePages_retry:
 
         numPagesAllocatedThisTime = 0;
         status = (*useFunc)(pMap, addrBase, rangeStart, rangeEnd, numPagesLeftToAllocate,
-            curPages, pageSize, alignment, &numPagesAllocatedThisTime, !tryEvict);
+            curPages, pageSize, alignment, stride, strideStart, &numPagesAllocatedThisTime, !tryEvict, reverseFlag);
 
         NV_ASSERT(numPagesAllocatedThisTime <= numPagesLeftToAllocate);
 
@@ -821,15 +843,6 @@ pmaAllocatePages_retry:
         numPagesAllocatedSoFar += numPagesAllocatedThisTime;
         curPages += numPagesAllocatedThisTime;
         numPagesLeftToAllocate -= numPagesAllocatedThisTime;
-
-        //
-        // PMA must currently catch addrtree shortcomings and fail the request
-        // Just follow the no memory path for now to properly release locks
-        //
-        if (status == NV_ERR_INVALID_ARGUMENT)
-        {
-            status = NV_ERR_NO_MEMORY;
-        }
 
         if (status == NV_ERR_IN_USE && !tryEvict)
         {
@@ -880,7 +893,7 @@ pmaAllocatePages_retry:
                 NvU64 evictStart  = *curPages;
                 NvU64 evictEnd    = *curPages + (numFramesToAllocateTotal << PMA_PAGE_SHIFT) - 1;
 
-                NV_PRINTF(LEVEL_INFO, "Attempt %s eviction of 0x%llx pages of size 0x%x, "
+                NV_PRINTF(LEVEL_INFO, "Attempt %s eviction of 0x%llx pages of size 0x%llx, "
                                       "(0x%x frames per page) in the frame range 0x%llx..0x%llx\n",
                                       contigFlag ? "contiguous" : "discontiguous",
                                       numPagesLeftToAllocate,
@@ -889,7 +902,7 @@ pmaAllocatePages_retry:
                                       (evictStart - addrBase) >> PMA_PAGE_SHIFT,
                                       (evictEnd - addrBase) >> PMA_PAGE_SHIFT);
 
-                status = _pmaEvictContiguous(pPma, pMap, evictStart, evictEnd);
+                status = _pmaEvictContiguous(pPma, pMap, evictStart, evictEnd, prot);
             }
             else
             {
@@ -910,7 +923,7 @@ pmaAllocatePages_retry:
                     NV_ASSERT(evictPhysBegin <= evictPhysEnd);
                 }
 
-                NV_PRINTF(LEVEL_INFO, "Attempt %s eviction of 0x%llx pages of size 0x%x, "
+                NV_PRINTF(LEVEL_INFO, "Attempt %s eviction of 0x%llx pages of size 0x%llx, "
                                       "(0x%x frames per page), in the frame range 0x%llx..0x%llx\n",
                                       contigFlag ? "contiguous" : "discontiguous",
                                       numPagesLeftToAllocate,
@@ -920,7 +933,8 @@ pmaAllocatePages_retry:
                                       (evictPhysEnd - addrBase) >> PMA_PAGE_SHIFT);
 
                 status = _pmaEvictPages(pPma, pMap, curPages, numPagesLeftToAllocate,
-                                        pPages, numPagesAllocatedSoFar, pageSize, evictPhysBegin, evictPhysEnd);
+                                        pPages, numPagesAllocatedSoFar, pageSize,
+                                        evictPhysBegin, evictPhysEnd, prot);
             }
 
             if (status == NV_OK)
@@ -1065,15 +1079,16 @@ pmaAllocatePages_retry:
             addrBase = pPma->pRegDescriptors[regId]->base;
             frameBase = PMA_ADDR2FRAME(pPages[0], addrBase);
 
+#if PMA_DEBUG
             NV_PRINTF(LEVEL_INFO, "Successfully allocated frames 0x%llx through 0x%llx\n",
                                   frameBase,
                                   frameBase + numFramesAllocated - 1);
+#endif
 
-            for (i = 0; i < numPagesAllocatedSoFar; i++)
-            {
-                pPma->pMapInfo->pmaMapChangePageStateAttrib(pMap, frameBase + (i * framesPerPage),
-                                                            pageSize, pinOption, NV_TRUE);
-            }
+            pPma->pMapInfo->pmaMapChangeBlockStateAttrib(pMap, frameBase, numPagesAllocatedSoFar * framesPerPage,
+                                                         pinOption, MAP_MASK);
+            
+            pPma->pStatsUpdateCb(pPma->pStatsUpdateCtx, pPma->pmaStats.numFreeFrames);
 
             if (blacklistOffFlag && blacklistOffPerRegion[regId])
             {
@@ -1087,45 +1102,61 @@ pmaAllocatePages_retry:
         }
         else
         {
-            NvU64 frameRangeStart = 0;
-            NvU64 lastFrameRangeEnd = 0;
             NvU64 frameBase = 0;
+#if PMA_DEBUG
+            NvU64 frameRangeStart   = 0;
+            NvU64 nextExpectedFrame = 0;
+            NvU32 frameRangeRegId   = 0;
 
             (void)frameRangeStart;   //Silence the compiler
-            (void)lastFrameRangeEnd;
+            (void)nextExpectedFrame;
+            (void)frameRangeRegId;
 
             NV_PRINTF(LEVEL_INFO, "Successfully allocated frames:\n");
+#endif
 
             for (i = 0; i < numPagesAllocatedSoFar; i++)
             {
                 regId = findRegionID(pPma, pPages[i]);
                 pMap  = pPma->pRegions[regId];
                 addrBase = pPma->pRegDescriptors[regId]->base;
-                frameBase = PMA_ADDR2FRAME(pPages[i], addrBase);
+                frameBase =  PMA_ADDR2FRAME(pPages[i], addrBase);
 
+#if PMA_DEBUG
                 // Print out contiguous frames in the same NV_PRINTF
                 if (i == 0)
                 {
                     frameRangeStart = frameBase;
+                    frameRangeRegId = regId;
                 }
-                else if ((lastFrameRangeEnd + 1) != frameBase)
+                else if ((frameRangeRegId != regId) || (nextExpectedFrame != frameBase))
                 {
                     // Break in frame range detected
-                    NV_PRINTF(LEVEL_INFO, "0x%llx through 0x%llx \n",
-                                          frameRangeStart,
-                                          lastFrameRangeEnd);
+                    NV_PRINTF(LEVEL_INFO, "0x%llx through 0x%llx region %d \n",
+                                          reverseFlag ? nextExpectedFrame + framesPerPage : frameRangeStart,
+                                          reverseFlag ? frameRangeStart + framesPerPage - 1 : nextExpectedFrame - 1,
+                                          frameRangeRegId);
 
                     frameRangeStart = frameBase;
+                    frameRangeRegId = regId;
                 }
-                lastFrameRangeEnd = frameBase + framesPerPage - 1;
+                nextExpectedFrame = reverseFlag ? frameBase - framesPerPage : frameBase + framesPerPage;
+#endif
 
-                pPma->pMapInfo->pmaMapChangePageStateAttrib(pMap, PMA_ADDR2FRAME(pPages[i], addrBase),
-                                                            pageSize, pinOption, NV_TRUE);
+                pPma->pMapInfo->pmaMapChangePageStateAttrib(pMap, frameBase,
+                                                            pageSize, pinOption, MAP_MASK);
 
             }
-            NV_PRINTF(LEVEL_INFO, "0x%llx through 0x%llx \n",
-                                  frameRangeStart,
-                                  frameBase + framesPerPage - 1);
+
+            pPma->pStatsUpdateCb(pPma->pStatsUpdateCtx, pPma->pmaStats.numFreeFrames);
+
+#if PMA_DEBUG
+                // Break in frame range detected
+                NV_PRINTF(LEVEL_INFO, "0x%llx through 0x%llx region %d \n",
+                                      reverseFlag ? nextExpectedFrame + framesPerPage : frameRangeStart,
+                                      reverseFlag ? frameRangeStart + framesPerPage - 1 : nextExpectedFrame - 1,
+                                      frameRangeRegId);
+#endif
         }
     }
 
@@ -1172,7 +1203,7 @@ pmaAllocatePagesBroadcast
     PMA                   **pPma,
     NvU32                   pmaCount,
     NvLength                allocationCount,
-    NvU32                   pageSize,
+    NvU64                   pageSize,
     PMA_ALLOCATION_OPTIONS *allocationOptions,
     NvU64                  *pPages
 )
@@ -1194,14 +1225,14 @@ pmaPinPages
     PMA      *pPma,
     NvU64    *pPages,
     NvLength  pageCount,
-    NvU32     pageSize
+    NvU64     pageSize
 )
 {
     NV_STATUS status = NV_OK;
     NvU32          framesPerPage, regId, i, j;
     NvU64          frameNum, addrBase;
     PMA_PAGESTATUS state;
-    framesPerPage  = pageSize >> PMA_PAGE_SHIFT;
+    framesPerPage  = (NvU32)(pageSize >> PMA_PAGE_SHIFT);
 
     if (pPma == NULL || pageCount == 0 || pPages == NULL
         || (pageSize != _PMA_64KB && pageSize != _PMA_128KB && pageSize != _PMA_2MB && pageSize != _PMA_512MB))
@@ -1252,7 +1283,7 @@ pmaPinPages
             }
             else
             {
-                pPma->pMapInfo->pmaMapChangeState(pPma->pRegions[regId], (frameNum + j), STATE_PIN);
+                pPma->pMapInfo->pmaMapChangeStateAttrib(pPma->pRegions[regId], (frameNum + j), STATE_PIN, STATE_MASK);
             }
         }
     }
@@ -1262,59 +1293,6 @@ done:
 
     return status;
 }
-
-
-NV_STATUS
-pmaUnpinPages
-(
-    PMA      *pPma,
-    NvU64    *pPages,
-    NvLength  pageCount,
-    NvU32     pageSize
-)
-{
-    NvU32          framesPerPage, regId, i, j;
-    NvU64          frameNum, addrBase;
-    PMA_PAGESTATUS state;
-    framesPerPage  = pageSize >> PMA_PAGE_SHIFT;
-
-    if (pPma == NULL || pageCount == 0 || pPages == NULL
-        || (pageSize != _PMA_64KB && pageSize != _PMA_128KB && pageSize != _PMA_2MB && pageSize != _PMA_512MB))
-    {
-        return NV_ERR_INVALID_ARGUMENT;
-    }
-
-    portSyncSpinlockAcquire(pPma->pPmaLock);
-
-    for(i = 0; i < pageCount; i++)
-    {
-        regId = findRegionID(pPma, pPages[i]);
-        addrBase = pPma->pRegDescriptors[regId]->base;
-        frameNum = PMA_ADDR2FRAME(pPages[i], addrBase);
-
-        for (j = 0; j < framesPerPage; j++)
-        {
-            state = pPma->pMapInfo->pmaMapRead(pPma->pRegions[regId], (frameNum + j), NV_FALSE);
-            if (state != STATE_PIN)
-            {
-                NV_PRINTF(LEVEL_ERROR, "Unpin failed at %dth page %dth frame\n",
-                                        i, j);
-                _pmaRollback(pPma, pPages, i, j, pageSize, STATE_PIN);
-                return NV_ERR_INVALID_STATE;
-
-            }
-            else
-            {
-                pPma->pMapInfo->pmaMapChangeState(pPma->pRegions[regId], (frameNum + j), STATE_UNPIN);
-            }
-        }
-    }
-
-    portSyncSpinlockRelease(pPma->pPmaLock);
-
-    return NV_OK;
-}
-
 
 void
 pmaFreePages
@@ -1340,7 +1318,8 @@ pmaFreePages
     {
         NV_ASSERT((size == _PMA_64KB)  ||
                   (size == _PMA_128KB) ||
-                  (size == _PMA_2MB));
+                  (size == _PMA_2MB)   ||
+                  (size == _PMA_512MB));
     }
 
     // Fork out new code path for NUMA sub-allocation from OS
@@ -1352,8 +1331,6 @@ pmaFreePages
 
         return;
     }
-
-    framesPerPage = size >> PMA_PAGE_SHIFT;
 
     // Check if any scrubbing is done before we actually free
     if (bNeedScrub)
@@ -1381,6 +1358,8 @@ pmaFreePages
 
     portSyncSpinlockAcquire(pPma->pPmaLock);
 
+    framesPerPage = size >> PMA_PAGE_SHIFT;
+
     for (i = 0; i < pageCount; i++)
     {
         regId    = findRegionID(pPma, pPages[i]);
@@ -1392,13 +1371,17 @@ pmaFreePages
         for (j = 0; j < framesPerPage; j++)
         {
             PMA_PAGESTATUS newStatus = (bScrubValid && bNeedScrub) ? ATTRIB_SCRUBBING : STATE_FREE;
+            PMA_PAGESTATUS exceptedMask = ATTRIB_EVICTING | ATTRIB_BLACKLIST;
+
             //
             // Reset everything except for the (ATTRIB_EVICTING and ATTRIB_BLACKLIST) state to support memory being freed
             // after being picked for eviction.
             //
-            pPma->pMapInfo->pmaMapChangeStateAttribEx(pPma->pRegions[regId], (frameNum + j), newStatus, ~(ATTRIB_EVICTING | ATTRIB_BLACKLIST));
+            pPma->pMapInfo->pmaMapChangeStateAttrib(pPma->pRegions[regId], (frameNum + j), newStatus, ~(exceptedMask));
         }
     }
+
+    pPma->pStatsUpdateCb(pPma->pStatsUpdateCtx, pPma->pmaStats.numFreeFrames);
 
     portSyncSpinlockRelease(pPma->pPmaLock);
 
@@ -1408,17 +1391,18 @@ pmaFreePages
         PSCRUB_NODE pPmaScrubList = NULL;
         NvU64 count;
         if (scrubSubmitPages(pPma->pScrubObj, size, pPages, pageCount,
-                             &pPmaScrubList, &count) != NV_OK)
+                             &pPmaScrubList, &count) == NV_OK)
+        {
+            if (count > 0)
+            {
+                _pmaClearScrubBit(pPma, pPmaScrubList, count);
+            }
+        }
+        else
         {
             portAtomicSetSize(&pPma->scrubberValid, PMA_SCRUBBER_INVALID);
-            goto exit;
         }
 
-        if (count > 0)
-        {
-            _pmaClearScrubBit(pPma, pPmaScrubList, count);
-        }
-exit:
         // Free the actual list, although allocated by objscrub
         portMemFree(pPmaScrubList);
 
@@ -1448,6 +1432,8 @@ pmaClearScrubRange
             pmaSetBlockStateAttrib(pPma, physBase, physLimit - physBase + 1, 0, ATTRIB_SCRUBBING);
         }
     }
+
+    pPma->pStatsUpdateCb(pPma->pStatsUpdateCtx, pPma->pmaStats.numFreeFrames);
 }
 
 
@@ -1480,6 +1466,8 @@ pmaScrubComplete
         pmaSetBlockStateAttrib(pPma, physBase, physLimit - physBase + 1, 0, ATTRIB_SCRUBBING);
     }
 
+    pPma->pStatsUpdateCb(pPma->pStatsUpdateCtx, pPma->pmaStats.numFreeFrames);
+
     NV_PRINTF(LEVEL_INFO, "Inside\n");
     for (regionIdx = 0; regionIdx < pPma->regSize; regionIdx++)
     {
@@ -1492,6 +1480,19 @@ pmaScrubComplete
     return NV_OK;
 }
 
+void
+pmaRegisterUpdateStatsCb
+(
+    PMA *pPma,
+    pmaUpdateStatsCb_t pUpdateCb,
+    void *pCtxPtr
+)
+{
+    // Only supported right after init, so we don't bother taking locks.
+    pPma->pStatsUpdateCb = pUpdateCb;
+    pPma->pStatsUpdateCtx = pCtxPtr;
+    pUpdateCb(pCtxPtr, pPma->pmaStats.numFreeFrames);
+}
 
 NV_STATUS
 pmaRegisterEvictionCb
@@ -1602,6 +1603,24 @@ pmaGetFreeMemory
     NvU64           *pBytesFree
 )
 {
+#if !defined(SRT_BUILD)
+    NvU64 val;
+
+    portSyncSpinlockAcquire(pPma->pPmaLock);
+    NvBool nodeOnlined = pPma->nodeOnlined;
+    portSyncSpinlockRelease(pPma->pPmaLock);
+
+    if (nodeOnlined)
+    {
+        osGetNumaMemoryUsage(pPma->numaNodeId, pBytesFree, &val);
+        return;
+    }
+    //
+    // what to return when bNUMA == NV_TRUE and nodeOnlined==NV_FALSE?
+    // TODO : BUG 4199482.
+    //
+#endif
+
     portSyncSpinlockAcquire(pPma->pPmaLock);
 
     *pBytesFree = pPma->pmaStats.numFreeFrames << PMA_PAGE_SHIFT;
@@ -1622,6 +1641,24 @@ pmaGetTotalMemory
 
     *pBytesTotal = 0;
 
+#if !defined(SRT_BUILD)
+    NvU64 val;
+
+    portSyncSpinlockAcquire(pPma->pPmaLock);
+    NvBool nodeOnlined = pPma->nodeOnlined;
+    portSyncSpinlockRelease(pPma->pPmaLock);
+
+    if (nodeOnlined)
+    {
+        osGetNumaMemoryUsage(pPma->numaNodeId, &val, pBytesTotal);
+        return;
+    }
+    //
+    // what to return when bNUMA == NV_TRUE and nodeOnlined==NV_FALSE?
+    // TODO : BUG 4199482.
+    //
+#endif
+
     for (i = 0; i < pPma->regSize; i++)
     {
         pMap = pPma->pRegions[i];
@@ -1629,6 +1666,27 @@ pmaGetTotalMemory
 
         *pBytesTotal += totalBytesInRegion;
     }
+}
+
+void
+pmaGetClientAddrSpaceSize
+(
+    PMA             *pPma,
+    NvU64           *pSize
+)
+{
+    NvU64 highestAddr = 0;
+
+    // Iterate the regions that were given to PMA
+    for (NvU32 i = 0; i < pPma->regSize; i++)
+    {
+        highestAddr = NV_MAX(highestAddr, pPma->pRegDescriptors[i]->limit);
+    }
+
+    // should end in 0xFFFF as a limit
+    NV_ASSERT((highestAddr & RM_PAGE_MASK) != 0);
+
+    *pSize = highestAddr + 1;
 }
 
 NV_STATUS
@@ -1790,7 +1848,7 @@ pmaGetClientBlacklistedPages
 (
     PMA   *pPma,
     NvU64 *pChunks,
-    NvU32 *pPageSize,
+    NvU64 *pPageSize,
     NvU32 *pNumChunks
 )
 {
@@ -1801,6 +1859,8 @@ pmaGetClientBlacklistedPages
     NvU32 blacklistCount = 0;
     NvBool bClientManagedBlacklist = NV_FALSE;
     PMA_BLACKLIST_CHUNK *pBlacklistChunks, *pBlacklistChunk;
+
+    NV_ASSERT_OR_RETURN_VOID((pPma != NULL) && (pChunks != NULL) && (pPageSize != NULL) && (pNumChunks != NULL));
 
     for (region = 0; region < pPma->regSize; region++)
     {
@@ -1911,7 +1971,7 @@ pmaAddToBlacklistTracking
     {
         blacklistPages.physOffset  = physAddr;
         blacklistPages.bIsDynamic  = NV_TRUE;
-        status = pmaRegisterBlacklistInfo(pPma, 0, &blacklistPages, 1);
+        status = pmaRegisterBlacklistInfo(pPma, 0, &blacklistPages, 1, NV_FALSE);
     }
     return status;
 }
@@ -1967,7 +2027,11 @@ pmaGetFreeProtectedMemory
     NvU64 *pBytesFree
 )
 {
-    *pBytesFree = 0;
+    portSyncSpinlockAcquire(pPma->pPmaLock);
+
+    *pBytesFree = (pPma->pmaStats.numFreeFramesProtected) << PMA_PAGE_SHIFT;
+
+    portSyncSpinlockRelease(pPma->pPmaLock);
 }
 
 void
@@ -1977,6 +2041,10 @@ pmaGetFreeUnprotectedMemory
     NvU64 *pBytesFree
 )
 {
-    // When memory protection is not enabled all memory is unprotected
-    pmaGetFreeMemory(pPma, pBytesFree);
+    portSyncSpinlockAcquire(pPma->pPmaLock);
+
+    *pBytesFree = (pPma->pmaStats.numFreeFrames -
+                   pPma->pmaStats.numFreeFramesProtected) << PMA_PAGE_SHIFT;
+
+    portSyncSpinlockRelease(pPma->pPmaLock);
 }

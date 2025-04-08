@@ -29,6 +29,7 @@
 #include "nvkms-3dvision.h"
 #include "nvkms-evo.h"
 #include "nvkms-ioctl.h"
+#include "nvkms-modetimings.h"
 
 #include "nv_mode_timings_utils.h"
 #include "nv_vasprintf.h"
@@ -36,6 +37,8 @@
 #include "nvkms-prealloc.h"
 
 #include "nvkms-api.h"
+
+#include "dp/nvdp-connector-event-sink.h"
 
 typedef struct {
     enum NvKmsModeSource source;
@@ -177,17 +180,21 @@ nvValidateModeEvo(NVDpyEvoPtr pDpyEvo,
  *
  * Currently only frame packed 3D modes are supported, as we rely on
  * Kepler's HW support for this mode.
+ *
+ * If hdmi 3D is supported, then only one of hdmi3D or hdmi3DAvailable
+ * will be returned true, based on if it was requested.
  */
-static NvBool GetHdmi3DValue(const NVDpyEvoRec *pDpyEvo,
-                             const struct NvKmsModeValidationParams *pParams,
-                             const NVT_TIMING *pTiming)
+static void GetHdmi3DValue(const NVDpyEvoRec *pDpyEvo,
+                           const struct NvKmsModeValidationParams *pParams,
+                           const NVT_TIMING *pTiming, 
+                           NvBool *hdmi3D,
+                           NvBool *hdmi3DAvailable)
 {
     /* This should only be used in paths where we have a valid parsed EDID. */
 
     nvAssert(pDpyEvo->parsedEdid.valid);
 
-    if ((pParams->stereoMode == NVKMS_STEREO_HDMI_3D) &&
-        (NVT_GET_TIMING_STATUS_TYPE(pTiming->etc.status) ==
+    if ((NVT_GET_TIMING_STATUS_TYPE(pTiming->etc.status) ==
          NVT_TYPE_EDID_861ST) &&
         nvDpyEvoSupportsHdmi3D(pDpyEvo)) {
 
@@ -200,32 +207,15 @@ static NvBool GetHdmi3DValue(const NVDpyEvoRec *pDpyEvo,
             if ((vic == hdmi3DMap.Vic) &&
                 (hdmi3DMap.StereoStructureMask &
                  NVT_HDMI_3D_SUPPORTED_FRAMEPACK_MASK)) {
-                return TRUE;
+                *hdmi3D = pParams->stereoMode == NVKMS_STEREO_HDMI_3D;
+                *hdmi3DAvailable = pParams->stereoMode != NVKMS_STEREO_HDMI_3D;
+                return;
             }
         }
     }
 
-    return FALSE;
-}
-
-/*
- * For Kepler HW HDMI 1.4 frame packed stereo, HW combines two flips
- * into a single top-down double-height frame, and it needs a
- * doubled refresh rate to accommodate this.
- */
-static void UpdateNvModeTimingsForHdmi3D(NvModeTimings *pModeTimings,
-                                         NvBool enableHdmi3D)
-{
-    if (enableHdmi3D) {
-        pModeTimings->pixelClockHz *= 2;
-        pModeTimings->RRx1k *= 2;
-    } else {
-        nvAssert((pModeTimings->pixelClockHz % 2) == 0);
-        pModeTimings->pixelClockHz /= 2;
-
-        nvAssert((pModeTimings->RRx1k % 2) == 0);
-        pModeTimings->RRx1k /= 2;
-    }
+    *hdmi3D = FALSE;
+    *hdmi3DAvailable = FALSE;
 }
 
 /*
@@ -245,6 +235,11 @@ static NvBool DpYuv420Required(const NVDpyEvoRec *pDpyEvo,
 
     if (!pDevEvo->caps.supportsDP13) {
         // The GPU doesn't support YUV420.
+        return FALSE;
+    }
+
+    if (!nvDPLibDpyIsYuv420ModeSupported(pDpyEvo)) {
+        // The dpy doesn't support YUV420.
         return FALSE;
     }
 
@@ -359,6 +354,7 @@ ValidateModeIndexEdid(NVDpyEvoPtr pDpyEvo,
         NVT_TIMING timing = pDpyEvo->parsedEdid.info.timing[i];
         EvoValidateModeFlags flags;
         struct NvKmsMode kmsMode = { };
+        NvBool hdmi3D = FALSE;
 
         /* Skip this mode if it was marked invalid by nvtiming. */
 
@@ -405,11 +401,9 @@ ValidateModeIndexEdid(NVDpyEvoPtr pDpyEvo,
          * Currently only frame packed 3D modes are supported, as we rely on
          * Kepler's HW support for this mode.
          */
-        kmsMode.timings.hdmi3D = GetHdmi3DValue(pDpyEvo, pParams, &timing);
-
-        if (kmsMode.timings.hdmi3D) {
-            UpdateNvModeTimingsForHdmi3D(&kmsMode.timings, TRUE);
-        }
+        GetHdmi3DValue(pDpyEvo, pParams, &timing, &hdmi3D,
+                       &pReply->hdmi3DAvailable);
+        nvKmsUpdateNvModeTimingsForHdmi3D(&kmsMode.timings, hdmi3D);
 
         kmsMode.timings.yuv420Mode = GetYUV420Value(pDpyEvo, pParams, &timing);
 
@@ -422,6 +416,49 @@ ValidateModeIndexEdid(NVDpyEvoPtr pDpyEvo,
                                      pInfoString,
                                      &pReply->validSyncs,
                                      &pReply->modeUsage);
+
+        /*
+         * The client did not request hdmi3D, but this mode supports hdmi3D.
+         * Re-validate the mode with hdmi3D enabled.  If that passes, report
+         * to the client that the mode could be used with hdmi3D if they choose
+         * later.
+         */
+        if (pReply->valid && pReply->hdmi3DAvailable) {
+            /*
+             * Use dummy validSyncs and modeUsage so the original result isn't
+             * affected.
+             *
+             * Create a temporary KMS mode so that we can enable hdmi3D in it
+             * without perturbing the currently validated mode.
+             *
+             * Put all of this in a temporary heap allocation, to conserve
+             * stack.
+             */
+            struct workArea {
+                struct NvKmsModeValidationValidSyncs stereoValidSyncs;
+                struct NvKmsUsageBounds stereoModeUsage;
+                struct NvKmsMode stereoKmsMode;
+            } *pWorkArea = nvCalloc(1, sizeof(*pWorkArea));
+
+            if (pWorkArea == NULL) {
+                pReply->hdmi3DAvailable = FALSE;
+            } else {
+                pWorkArea->stereoKmsMode = kmsMode;
+                nvKmsUpdateNvModeTimingsForHdmi3D(
+                    &pWorkArea->stereoKmsMode.timings, TRUE);
+
+                pReply->hdmi3DAvailable =
+                    ValidateMode(pDpyEvo,
+                                 &pWorkArea->stereoKmsMode,
+                                 &flags,
+                                 pParams,
+                                 pInfoString,
+                                 &pWorkArea->stereoValidSyncs,
+                                 &pWorkArea->stereoModeUsage);
+                nvFree(pWorkArea);
+            }
+        }
+
         /*
          * if this is a detailed timing, then flag it as such; this
          * will be used later when searching for the AutoSelect mode
@@ -458,16 +495,13 @@ ValidateModeIndexEdid(NVDpyEvoPtr pDpyEvo,
          */
         if (flags.patchedStereoTimings) {
             enum NvYuv420Mode yuv420Mode = kmsMode.timings.yuv420Mode;
-            NvBool hdmi3D = kmsMode.timings.hdmi3D;
+            hdmi3D = kmsMode.timings.hdmi3D;
 
             NVT_TIMINGtoNvModeTimings(&pDpyEvo->parsedEdid.info.timing[i],
                                       &kmsMode.timings);
             kmsMode.timings.yuv420Mode = yuv420Mode;
-            kmsMode.timings.hdmi3D = hdmi3D;
 
-            if (hdmi3D) {
-                UpdateNvModeTimingsForHdmi3D(&kmsMode.timings, TRUE);
-            }
+            nvKmsUpdateNvModeTimingsForHdmi3D(&kmsMode.timings, hdmi3D);
         }
 
         pReply->mode.timings = kmsMode.timings;
@@ -1235,7 +1269,7 @@ static NvBool ValidateModeTimings(
 
         NvU32 maxPixelClockKHz = pDpyEvo->maxPixelClockKHz;
         NvU32 realPixelClock = HzToKHz(pModeTimings->pixelClockHz);
-        if (pModeTimings->yuv420Mode == NV_YUV420_MODE_SW) {
+        if (pModeTimings->yuv420Mode != NV_YUV420_MODE_NONE) {
             realPixelClock /= 2;
         }
 
@@ -1275,7 +1309,7 @@ static NvBool ValidateModeTimings(
     if ((overrides & NVKMS_MODE_VALIDATION_NO_EDID_MAX_PCLK_CHECK) == 0) {
 
         NvU32 realPixelClock = HzToKHz(pModeTimings->pixelClockHz);
-        if (pModeTimings->yuv420Mode == NV_YUV420_MODE_SW) {
+        if (pModeTimings->yuv420Mode != NV_YUV420_MODE_NONE) {
             realPixelClock /= 2;
         }
 
@@ -1557,28 +1591,51 @@ static NvBool ValidateModeTimings(
  * particular ViewPort.
  */
 
-static void LogViewPort(NVEvoInfoStringPtr pInfoString,
-                        const NVHwModeTimingsEvo *pTimings)
+static
+void LogViewPort(NVEvoInfoStringPtr pInfoString,
+                 const NVHwModeTimingsEvo timings[NVKMS_MAX_HEADS_PER_DISP],
+                 const NvU32 numHeads)
 {
-    const NVHwModeViewPortEvo *pViewPort = &pTimings->viewPort;
-    const struct NvKmsRect viewPortOut = nvEvoViewPortOutClientView(pTimings);
+    NvU32 head;
+    char str[64] = { }, *s = NULL;
+
+    nvAssert(numHeads <= 2);
+
+    nvEvoLogInfoString(pInfoString,
+            "DualHead Mode: %s", (numHeads > 1) ? "Yes" : "No");
 
     /* print the viewport name, size, and taps */
-
+    nvkms_memset(str, 0, sizeof(str));
+    for (head = 0, s = str; head < numHeads; head++) {
+        const struct NvKmsRect viewPortOut =
+            nvEvoViewPortOutClientView(&timings[head]);
+        size_t n = str + sizeof(str) - s;
+        s += nvkms_snprintf(s, n, "%s%dx%d+%d+%d", (s != str) ? ", " : "",
+                            viewPortOut.width, viewPortOut.height,
+                            viewPortOut.x, viewPortOut.x);
+    }
     nvEvoLogInfoString(pInfoString,
-               "Viewport                 %dx%d+%d+%d",
-               viewPortOut.width,
-               viewPortOut.height,
-               viewPortOut.x,
-               viewPortOut.y);
+               "Viewport                 %s", str);
 
+    nvkms_memset(str, 0, sizeof(str));
+    for (head = 0, s = str; head < numHeads; head++) {
+        const NVHwModeViewPortEvo *pViewPort = &timings[head].viewPort;
+        size_t n = str + sizeof(str) - s;
+        s += nvkms_snprintf(s, n, "%s%d", (s != str) ? ", " : "",
+                            NVEvoScalerTapsToNum(pViewPort->hTaps));
+    }
     nvEvoLogInfoString(pInfoString,
-               "  Horizontal Taps        %d",
-               NVEvoScalerTapsToNum(pViewPort->hTaps));
+               "  Horizontal Taps        %s", str);
 
+    nvkms_memset(str, 0, sizeof(str));
+    for (head = 0, s = str; head < numHeads; head++) {
+        const NVHwModeViewPortEvo *pViewPort = &timings[head].viewPort;
+        size_t n = str + sizeof(str) - s;
+        s += nvkms_snprintf(s, n, "%s%d", (s != str) ? ", " : "",
+                            NVEvoScalerTapsToNum(pViewPort->vTaps));
+    }
     nvEvoLogInfoString(pInfoString,
-               "  Vertical Taps          %d",
-               NVEvoScalerTapsToNum(pViewPort->hTaps));
+               "  Vertical Taps          %s", str);
 }
 
 /*
@@ -1598,15 +1655,33 @@ static NvBool ValidateMode(NVDpyEvoPtr pDpyEvo,
     const NvModeTimings *pModeTimings = &pKmsMode->timings;
     NVDispEvoPtr pDispEvo = pDpyEvo->pDispEvo;
     NVDevEvoRec *pDevEvo = pDispEvo->pDevEvo;
-
+    NvBool b2Heads1Or = FALSE;
     char localModeName[NV_MAX_MODE_NAME_LEN];
 
     NVHwModeTimingsEvo *pTimingsEvo =
         nvPreallocGet(pDevEvo,
                       PREALLOC_TYPE_VALIDATE_MODE_HW_MODE_TIMINGS,
                       sizeof(*pTimingsEvo));
-
+    HDMI_FRL_CONFIG *pHdmiFrlConfig =
+        nvPreallocGet(pDevEvo,
+                      PREALLOC_TYPE_VALIDATE_MODE_HDMI_FRL_CONFIG,
+                      sizeof(*pHdmiFrlConfig));
+    NVDscInfoEvoRec *pDscInfo =
+         nvPreallocGet(pDevEvo,
+                      PREALLOC_TYPE_VALIDATE_MODE_DSC_INFO,
+                      sizeof(*pDscInfo));
+    NVHwModeTimingsEvo *impOutTimings =
+        nvPreallocGet(pDevEvo,
+                      PREALLOC_TYPE_VALIDATE_MODE_IMP_OUT_HW_MODE_TIMINGS,
+                      sizeof(*impOutTimings) *
+                        NVKMS_MAX_HEADS_PER_DISP);
+    NvU32 impOutNumHeads = 0x0;
+    NvU32 head;
     NvBool ret = FALSE;
+
+    const NvKmsDpyOutputColorFormatInfo supportedColorFormats =
+        nvDpyGetOutputColorFormatInfo(pDpyEvo);
+    NVDpyAttributeColor dpyColor;
 
     if (modeName[0] == '\0') {
         nvBuildModeName(pModeTimings->hVisible, pModeTimings->vVisible,
@@ -1617,6 +1692,9 @@ static NvBool ValidateMode(NVDpyEvoPtr pDpyEvo,
     /* Initialize the EVO hwModeTimings structure */
 
     nvkms_memset(pTimingsEvo, 0, sizeof(*pTimingsEvo));
+    nvkms_memset(pHdmiFrlConfig, 0, sizeof(*pHdmiFrlConfig));
+    nvkms_memset(pDscInfo, 0, sizeof(*pDscInfo));
+    nvkms_memset(impOutTimings, 0, sizeof(*impOutTimings) * NVKMS_MAX_HEADS_PER_DISP);
 
     /* begin logging of ModeValidation for this mode */
 
@@ -1624,6 +1702,17 @@ static NvBool ValidateMode(NVDpyEvoPtr pDpyEvo,
 
     if (!ValidateModeTimings(pDpyEvo, pKmsMode, flags, pParams,
                              pInfoString, pValidSyncs)) {
+        goto done;
+    }
+
+    if (pTimingsEvo->yuv420Mode != NV_YUV420_MODE_NONE) {
+        dpyColor.format = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_SPACE_YCbCr420;
+        dpyColor.bpc = NV_KMS_DPY_ATTRIBUTE_CURRENT_COLOR_BPC_8;
+        dpyColor.range = NV_KMS_DPY_ATTRIBUTE_COLOR_RANGE_LIMITED;
+        dpyColor.colorimetry = NVKMS_OUTPUT_COLORIMETRY_DEFAULT;
+    } else if (!nvGetDefaultDpyColor(&supportedColorFormats, &dpyColor)) {
+        LogModeValidationEnd(pDispEvo, pInfoString,
+                             "Failed to get default color space and Bpc");
         goto done;
     }
 
@@ -1650,6 +1739,7 @@ static NvBool ValidateMode(NVDpyEvoPtr pDpyEvo,
                                      pKmsMode,
                                      NULL, /* pViewPortSizeIn */
                                      NULL, /* pViewPortOut */
+                                     &dpyColor,
                                      pTimingsEvo,
                                      pParams,
                                      pInfoString)) {
@@ -1659,10 +1749,28 @@ static NvBool ValidateMode(NVDpyEvoPtr pDpyEvo,
         goto done;
     }
 
-    if (!nvDPValidateModeEvo(pDpyEvo, pTimingsEvo, pParams)) {
-        LogModeValidationEnd(pDispEvo,
-                             pInfoString, "DP Bandwidth check failed");
-        goto done;
+    b2Heads1Or = nvEvoUse2Heads1OR(pDpyEvo, pTimingsEvo, pParams);
+
+    if (nvDpyIsHdmiEvo(pDpyEvo)) {
+        if (!nvHdmiFrlQueryConfig(pDpyEvo,
+                                  &pKmsMode->timings,
+                                  pTimingsEvo,
+                                  &dpyColor,
+                                  b2Heads1Or,
+                                  pParams,
+                                  pHdmiFrlConfig,
+                                  pDscInfo)) {
+            LogModeValidationEnd(pDispEvo, pInfoString,
+                "Unable to determine HDMI 2.1 Fixed Rate Link configuration.");
+            goto done;
+        }
+    } else {
+        if (!nvDPValidateModeEvo(pDpyEvo, pTimingsEvo, &dpyColor, b2Heads1Or,
+                                 pDscInfo, pParams)) {
+            LogModeValidationEnd(pDispEvo,
+                                 pInfoString, "DP Bandwidth check failed");
+            goto done;
+        }
     }
 
     /*
@@ -1677,22 +1785,48 @@ static NvBool ValidateMode(NVDpyEvoPtr pDpyEvo,
 
 
     /* Run the raster timings through IMP checking. */
-
     if (!nvConstructHwModeTimingsImpCheckEvo(pDpyEvo->pConnectorEvo,
-                                             pTimingsEvo, pParams, pInfoString,
-                                             0 /* head */)) {
+                                             pTimingsEvo,
+                                             pDscInfo,
+                                             b2Heads1Or,
+                                             &dpyColor,
+                                             pParams,
+                                             impOutTimings,
+                                             &impOutNumHeads,
+                                             pInfoString)) {
         LogModeValidationEnd(pDispEvo, pInfoString,
                              "GPU extended capability check failed");
         goto done;
     }
 
+    nvAssert(impOutNumHeads > 0);
+
     /* Log modevalidation information about the viewport. */
 
-    LogViewPort(pInfoString, pTimingsEvo);
+    LogViewPort(pInfoString, impOutTimings, impOutNumHeads);
 
-    /* Copy out the usage bounds that passed validation */
+    /*
+     * Copy out the usage bounds that passed validation; note we intersect
+     * the usage bounds across the hardware heads that would be used with
+     * this apiHead, accumulating the results in pModeUsage.
+     */
+    for (head = 0; head < impOutNumHeads; head++) {
+        if (head == 0) {
+            *pModeUsage = impOutTimings[0].viewPort.possibleUsage;
+        } else {
+            struct NvKmsUsageBounds *pTmpUsageBounds =
+                nvPreallocGet(pDevEvo,
+                    PREALLOC_TYPE_VALIDATE_MODE_TMP_USAGE_BOUNDS,
+                    sizeof(*pTmpUsageBounds));
 
-    nvkms_memcpy(pModeUsage, &pTimingsEvo->viewPort.possibleUsage, sizeof(*pModeUsage));
+            nvIntersectUsageBounds(pModeUsage,
+                                   &impOutTimings[head].viewPort.possibleUsage,
+                                   pTmpUsageBounds);
+            *pModeUsage = *pTmpUsageBounds;
+
+            nvPreallocRelease(pDevEvo, PREALLOC_TYPE_VALIDATE_MODE_TMP_USAGE_BOUNDS);
+        }
+    }
 
     /* Whew, if we got this far, the mode is valid. */
 
@@ -1702,6 +1836,9 @@ static NvBool ValidateMode(NVDpyEvoPtr pDpyEvo,
 
 done:
     nvPreallocRelease(pDevEvo, PREALLOC_TYPE_VALIDATE_MODE_HW_MODE_TIMINGS);
+    nvPreallocRelease(pDevEvo, PREALLOC_TYPE_VALIDATE_MODE_HDMI_FRL_CONFIG);
+    nvPreallocRelease(pDevEvo, PREALLOC_TYPE_VALIDATE_MODE_DSC_INFO);
+    nvPreallocRelease(pDevEvo, PREALLOC_TYPE_VALIDATE_MODE_IMP_OUT_HW_MODE_TIMINGS);
 
     return ret;
 }
@@ -1753,16 +1890,13 @@ const NVT_TIMING *nvFindEdidNVT_TIMING
      * in ValidateModeIndexEdid(), so that the modeTimings can be
      * compared with the NVT_TIMINGs in the parsed EDID.
      */
-    if (tmpModeTimings.hdmi3D) {
-        UpdateNvModeTimingsForHdmi3D(&tmpModeTimings, FALSE);
-    }
+    nvKmsUpdateNvModeTimingsForHdmi3D(&tmpModeTimings, FALSE);
 
     /*
      * The NVT_TIMINGs we compare against below won't have hdmi3D or
      * yuv420 set; clear those flags in tmpModeTimings so that we can
      * do a more meaningful comparison.
      */
-    tmpModeTimings.hdmi3D = FALSE;
     tmpModeTimings.yuv420Mode = NV_YUV420_MODE_NONE;
 
     for (i = 0; i < pDpyEvo->parsedEdid.info.total_timings; i++) {
@@ -1839,12 +1973,9 @@ static NvBool ConstructModeTimingsMetaData(
 
             /* Restore the yuv420 and hdmi3D flags from the client's mode. */
             modeTimings.yuv420Mode = pKmsMode->timings.yuv420Mode;
-            modeTimings.hdmi3D = pKmsMode->timings.hdmi3D;
 
             /* Re-apply adjustments for hdmi3D. */
-            if (modeTimings.hdmi3D) {
-                UpdateNvModeTimingsForHdmi3D(&modeTimings, TRUE);
-            }
+            nvKmsUpdateNvModeTimingsForHdmi3D(&modeTimings, pKmsMode->timings.hdmi3D);
 
         }
 
@@ -1855,7 +1986,10 @@ static NvBool ConstructModeTimingsMetaData(
         }
 
         /* Validate hdmi3D. */
-        if (modeTimings.hdmi3D != GetHdmi3DValue(pDpyEvo, pParams, &timing)) {
+        NvBool hdmi3D = FALSE;
+        NvBool hdmi3DAvailable = FALSE;
+        GetHdmi3DValue(pDpyEvo, pParams, &timing, &hdmi3D, &hdmi3DAvailable);
+        if ((modeTimings.hdmi3D != hdmi3D) && !hdmi3DAvailable) {
             return FALSE;
         }
 
@@ -1923,7 +2057,9 @@ NvBool nvValidateModeForModeset(NVDpyEvoRec *pDpyEvo,
                                 const struct NvKmsMode *pKmsMode,
                                 const struct NvKmsSize *pViewPortSizeIn,
                                 const struct NvKmsRect *pViewPortOut,
-                                NVHwModeTimingsEvo *pTimingsEvo)
+                                NVDpyAttributeColor *pDpyColor,
+                                NVHwModeTimingsEvo *pTimingsEvo,
+                                NVT_VIDEO_INFOFRAME_CTRL *pInfoFrameCtrl)
 {
     EvoValidateModeFlags flags;
     struct NvKmsMode kmsMode = *pKmsMode;
@@ -1953,13 +2089,16 @@ NvBool nvValidateModeForModeset(NVDpyEvoRec *pDpyEvo,
                                      &kmsMode,
                                      pViewPortSizeIn,
                                      pViewPortOut,
+                                     pDpyColor,
                                      pTimingsEvo,
                                      pParams,
                                      &dummyInfoString)) {
         return FALSE;
     }
 
-    pTimingsEvo->infoFrameCtrl = infoFrameCtrl;
+    if (pInfoFrameCtrl != NULL) {
+        *pInfoFrameCtrl = infoFrameCtrl;
+    }
 
     return TRUE;
 }

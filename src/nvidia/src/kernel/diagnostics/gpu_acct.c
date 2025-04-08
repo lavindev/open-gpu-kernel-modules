@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2013-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2013-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -23,7 +23,7 @@
 
 
 #include "diagnostics/gpu_acct.h"
-#include "objtmr.h"
+#include "gpu/timer/objtmr.h"
 #include "kernel/gpu/mig_mgr/kernel_mig_manager.h"
 #include "containers/map.h"
 #include "containers/list.h"
@@ -38,7 +38,7 @@ static NvU64 gpuacctGetCurrTime(void);
 static NV_STATUS gpuacctAddProcEntry(GPU_ACCT_PROC_DATA_STORE *, GPUACCT_PROC_ENTRY *, NvBool);
 static NV_STATUS gpuacctRemoveProcEntry(GPU_ACCT_PROC_DATA_STORE *, GPUACCT_PROC_ENTRY *);
 static NV_STATUS gpuacctLookupProcEntry(GPU_ACCT_PROC_DATA_STORE *, NvU32, GPUACCT_PROC_ENTRY **);
-static NV_STATUS gpuacctAllocProcEntry(GPU_ACCT_PROC_DATA_STORE *, NvU32, NvU32, GPUACCT_PROC_ENTRY **);
+static NV_STATUS gpuacctAllocProcEntry(GPU_ACCT_PROC_DATA_STORE *, NvU32, NvU32, RmClient *, GPUACCT_PROC_ENTRY **);
 static NV_STATUS gpuacctFreeProcEntry(GPU_ACCT_PROC_DATA_STORE *, GPUACCT_PROC_ENTRY *);
 static NV_STATUS gpuacctCleanupDataStore(GPU_ACCT_PROC_DATA_STORE *);
 static NV_STATUS gpuacctDestroyDataStore(GPU_ACCT_PROC_DATA_STORE *);
@@ -156,8 +156,9 @@ gpuacctCleanupDataStore
 {
     NV_ASSERT_OR_RETURN(pDS != NULL, NV_ERR_INVALID_ARGUMENT);
 
-    GPU_ACCT_PROC_LISTIter iter = listIterAll(&pDS->procList);
-    while (listIterNext(&iter))
+    for (GPU_ACCT_PROC_LISTIter iter = listIterAll(&pDS->procList);
+         listIterNext(&iter);
+         iter = listIterAll(&pDS->procList))
     {
         GPUACCT_PROC_ENTRY *pEntry = iter.pValue;
         if (pEntry)
@@ -217,6 +218,7 @@ void gpuacctDestruct_IMPL
  * @param[in]  pDS       Pointer to data store where process entry is to be added.
  * @param[in]  pid       PID of the process.
  * @param[in]  procType  Type of the process.
+ * @param[in]  pClient   Process RmClient
  * @param[out] ppEntry   Pointer to process entry.
  *
  * @return  NV_OK
@@ -231,6 +233,7 @@ gpuacctAllocProcEntry
     GPU_ACCT_PROC_DATA_STORE *pDS,
     NvU32 pid,
     NvU32 procType,
+    RmClient *pClient,
     GPUACCT_PROC_ENTRY **ppEntry
 )
 {
@@ -249,6 +252,7 @@ gpuacctAllocProcEntry
 
     pEntry->procId = pid;
     pEntry->procType = procType;
+    pEntry->pClient = pClient;
 
     status = gpuacctAddProcEntry(pDS, pEntry, NV_TRUE);
     if (status != NV_OK)
@@ -261,6 +265,7 @@ gpuacctAllocProcEntry
 out:
     if (status != NV_OK)
     {
+        portMemSet(pEntry, 0, sizeof(GPUACCT_PROC_ENTRY));
         portMemFree(pEntry);
     }
     return status;
@@ -286,6 +291,7 @@ gpuacctFreeProcEntry
 
     NV_ASSERT_OR_RETURN(status == NV_OK, status);
 
+    portMemSet(pEntry, 0, sizeof(GPUACCT_PROC_ENTRY));
     portMemFree(pEntry);
 
     return NV_OK;
@@ -420,6 +426,27 @@ gpuacctFindProcEntryFromPidSubpid
     pidToSearch = 0;
     status      = NV_OK;
 
+    if (subPid != 0)
+    {
+        NvU32 vmIndex;
+
+        // It's a process running on VM, find data store for the VM.
+        for (vmIndex = 0; vmIndex < MAX_VGPU_DEVICES_PER_PGPU; ++vmIndex)
+        {
+            if (pGpuInstanceInfo->vmInstanceInfo[vmIndex].vmPId == pid)
+            {
+                break;
+            }
+        }
+        if (vmIndex == MAX_VGPU_DEVICES_PER_PGPU)
+        {
+            // Didn't find vm proc id on this GPU, return error.
+            return NV_ERR_INVALID_STATE;
+        }
+        pDS = &pGpuInstanceInfo->vmInstanceInfo[vmIndex].liveVMProcAcctInfo;
+        pidToSearch = subPid;
+    }
+    else
     {
         // It's a process running on GPU, return data store for GPU.
         pDS = &pGpuInstanceInfo->liveProcAcctInfo;
@@ -526,10 +553,8 @@ gpuacctProcessGpuUtil
 {
     GPUACCT_PROC_ENTRY *pEntry;
     NV_STATUS status = NV_OK;
-    NvU64 maxTimeStamp;
+    NvU64 maxTimeStamp = 0;
     NvU32 index;
-
-    maxTimeStamp = 0;
 
     for (index = 0; index < NV2080_CTRL_PERF_GPUMON_SAMPLE_COUNT_PERFMON_UTIL; ++index)
     {
@@ -549,8 +574,10 @@ gpuacctProcessGpuUtil
 
         // If the PMU sample entry's pid or subpid is invalid, then we won't find the
         // pid-subpid entry in data store, so skip processing this PMU gr sample.
+        // When run on GSP, only process VF samples.
         if (pUtilSampleBuffer[index].gr.procId       != NV2080_GPUMON_PID_INVALID &&
-            pUtilSampleBuffer[index].gr.subProcessID != NV2080_GPUMON_PID_INVALID)
+            pUtilSampleBuffer[index].gr.subProcessID != NV2080_GPUMON_PID_INVALID
+        )
         {
             // Find data store in which we should look up the PMU gr sample's pid/subpid.
             status = gpuacctFindProcEntryFromPidSubpid(pGpuInstanceInfo,
@@ -573,8 +600,10 @@ gpuacctProcessGpuUtil
 
         // If the PMU sample entry's pid or subpid is invalid, then we won't find the
         // pid-subpid entry in data store, so skip processing this PMU fb sample.
+        // When run on GSP, only process VF samples.
         if (pUtilSampleBuffer[index].fb.procId       != NV2080_GPUMON_PID_INVALID &&
-            pUtilSampleBuffer[index].fb.subProcessID != NV2080_GPUMON_PID_INVALID)
+            pUtilSampleBuffer[index].fb.subProcessID != NV2080_GPUMON_PID_INVALID
+        )
         {
             // If GR sample and FB sample are of same pid-subpid, no need to find the proc entry again.
             if (pUtilSampleBuffer[index].gr.procId       != pUtilSampleBuffer[index].fb.procId ||
@@ -590,6 +619,7 @@ gpuacctProcessGpuUtil
             if (status == NV_OK && pEntry != NULL)
             {
                 pEntry->sumFbUtil += pUtilSampleBuffer[index].fb.util;
+
             }
         }
     }
@@ -623,7 +653,8 @@ gpuacctStartGpuAccounting_IMPL
     GpuAccounting *pGpuAcct,
     NvU32 gpuInstance,
     NvU32 pid,
-    NvU32 subPid
+    NvU32 subPid,
+    RmClient *pClient
 )
 {
     OBJGPU *pGpu;
@@ -632,6 +663,7 @@ gpuacctStartGpuAccounting_IMPL
     NV_STATUS status = NV_OK;
     GPUACCT_PROC_ENTRY *pEntry = NULL;
     GPU_ACCT_PROC_DATA_STORE *pDS = NULL;
+    NvBool bVgpuOnGspEnabled;
 
     pGpu = gpumgrGetGpu(gpuInstance);
     NV_ASSERT_OR_RETURN(pGpu != NULL, NV_ERR_INVALID_STATE);
@@ -639,7 +671,34 @@ gpuacctStartGpuAccounting_IMPL
     GPUACCT_GPU_INSTANCE_INFO *gpuInstanceInfo = &pGpuAcct->gpuInstanceInfo[gpuInstance];
 
     vmIndex = NV_INVALID_VM_INDEX;
-    pDS = &gpuInstanceInfo->liveProcAcctInfo;
+
+    bVgpuOnGspEnabled = IS_VGPU_GSP_PLUGIN_OFFLOAD_ENABLED(pGpu) && RMCFG_FEATURE_PLATFORM_GSP;
+    if ((hypervisorIsVgxHyper() || bVgpuOnGspEnabled) && IS_VALID_SUBPID(subPid))
+    {
+        NvU32 i;
+
+        for (i = 0; i < MAX_VGPU_DEVICES_PER_PGPU; i++)
+        {
+            if (pid == gpuInstanceInfo->vmInstanceInfo[i].vmPId)
+            {
+                // Check if accounting mode is enabled for this VM.
+                // If not, just return.
+                if (gpuInstanceInfo->vmInstanceInfo[i].isAccountingEnabled ==
+                        NV0000_CTRL_GPU_ACCOUNTING_STATE_DISABLED)
+                {
+                    return status;
+                }
+
+                // Accounting enabled, save the vmIndex and break out of loop.
+                vmIndex = i;
+                break;
+            }
+        }
+    }
+
+    pDS = (vmIndex == NV_INVALID_VM_INDEX)  ?
+          &gpuInstanceInfo->liveProcAcctInfo :
+          &gpuInstanceInfo->vmInstanceInfo[vmIndex].liveVMProcAcctInfo;
 
     NV_ASSERT_OR_RETURN(pDS != NULL, NV_ERR_INVALID_STATE);
 
@@ -654,7 +713,7 @@ gpuacctStartGpuAccounting_IMPL
 
     // Create entry for the incoming pid.
     status = gpuacctAllocProcEntry(pDS, searchPid,
-                                   NV_GPUACCT_PROC_TYPE_CPU, &pEntry);
+                                   NV_GPUACCT_PROC_TYPE_CPU, pClient, &pEntry);
     NV_ASSERT_OR_RETURN(status == NV_OK, status);
     NV_ASSERT_OR_RETURN(pEntry != NULL, NV_ERR_NO_MEMORY);
 
@@ -713,6 +772,7 @@ gpuacctStopGpuAccounting_IMPL
     NV_STATUS status;
     NvU32 searchPid;
     NvU32 vmIndex;
+    NvBool bVgpuOnGspEnabled;
 
     pGpu = gpumgrGetGpu(gpuInstance);
     NV_ASSERT_OR_RETURN(pGpu != NULL, NV_ERR_INVALID_STATE);
@@ -720,6 +780,29 @@ gpuacctStopGpuAccounting_IMPL
     pGpuInstanceInfo = &pGpuAcct->gpuInstanceInfo[gpuInstance];
 
     vmIndex = NV_INVALID_VM_INDEX;
+
+    bVgpuOnGspEnabled = IS_VGPU_GSP_PLUGIN_OFFLOAD_ENABLED(pGpu) && RMCFG_FEATURE_PLATFORM_GSP;
+
+    // Find vmIndex, if subPid is passed.
+    if ((hypervisorIsVgxHyper() || bVgpuOnGspEnabled) && IS_VALID_SUBPID(subPid))
+    {
+        NvBool bVMFound = NV_FALSE;
+        NvU32 i;
+
+        for (i = 0; i < MAX_VGPU_DEVICES_PER_PGPU; i++)
+        {
+            if (pid == pGpuInstanceInfo->vmInstanceInfo[i].vmPId)
+            {
+                bVMFound = NV_TRUE;
+                vmIndex = i;
+                break;
+            }
+        }
+        if (bVMFound == NV_FALSE)
+        {
+            return NV_ERR_INVALID_STATE;
+        }
+    }
 
     if (vmIndex == NV_INVALID_VM_INDEX)
     {
@@ -732,6 +815,13 @@ gpuacctStopGpuAccounting_IMPL
         pDeadDS = &pGpuInstanceInfo->deadProcAcctInfo;
 
         searchPid = pid;
+    }
+    else
+    {
+        pLiveDS = &pGpuInstanceInfo->vmInstanceInfo[vmIndex].liveVMProcAcctInfo;
+        pDeadDS = &pGpuInstanceInfo->vmInstanceInfo[vmIndex].deadVMProcAcctInfo;
+
+        searchPid = subPid;
     }
 
     status = gpuacctLookupProcEntry(pLiveDS, searchPid, &pEntry);
@@ -776,6 +866,7 @@ gpuacctStopGpuAccounting_IMPL
         }
 
         // Move the entry to dead procs data store
+        pEntry->pClient = NULL;
         status = gpuacctRemoveProcEntry(pLiveDS, pEntry);
         if (status != NV_OK)
         {
@@ -785,6 +876,7 @@ gpuacctStopGpuAccounting_IMPL
         status = gpuacctAddProcEntry(pDeadDS, pEntry, NV_FALSE);
         if (status != NV_OK)
         {
+            portMemSet(pEntry, 0, sizeof(GPUACCT_PROC_ENTRY));
             portMemFree(pEntry);
             return status;
         }
@@ -830,8 +922,35 @@ gpuacctUpdateProcPeakFbUsage_IMPL
     GPU_ACCT_PROC_DATA_STORE *pDS = NULL;
     NV_STATUS status;
 
-    pDS = &pGpuAcct->gpuInstanceInfo[gpuInstance].liveProcAcctInfo;
-    status = gpuacctLookupProcEntry(pDS, pid, &pEntry);
+    // Find live process data store for the VM if subpid was passed.
+    if (hypervisorIsVgxHyper() && IS_VALID_SUBPID(subPid))
+    {
+        NvU32 vmIndex;
+
+        for (vmIndex = 0; vmIndex < MAX_VGPU_DEVICES_PER_PGPU; vmIndex++)
+        {
+            if (pGpuAcct->gpuInstanceInfo[gpuInstance].vmInstanceInfo[vmIndex].vmPId == pid)
+            {
+                pDS = &pGpuAcct->gpuInstanceInfo[gpuInstance].vmInstanceInfo[vmIndex].liveVMProcAcctInfo;
+                break;
+            }
+        }
+    }
+    else
+    {
+        pDS = &pGpuAcct->gpuInstanceInfo[gpuInstance].liveProcAcctInfo;
+    }
+
+    NV_ASSERT_OR_RETURN(pDS != NULL, NV_ERR_INVALID_STATE);
+
+    if (hypervisorIsVgxHyper() && IS_VALID_SUBPID(subPid))
+    {
+        status = gpuacctLookupProcEntry(pDS, subPid, &pEntry);
+    }
+    else
+    {
+        status = gpuacctLookupProcEntry(pDS, pid, &pEntry);
+    }
 
     if (status != NV_OK)
     {
@@ -878,12 +997,45 @@ gpuacctSetProcType_IMPL
     NvU32 procType
 )
 {
+    OBJGPU *pGpu;
     GPUACCT_PROC_ENTRY *pEntry;
     GPU_ACCT_PROC_DATA_STORE *pDS = NULL;
     NV_STATUS status;
+    NvBool bVgpuOnGspEnabled;
 
-    pDS = &pGpuAcct->gpuInstanceInfo[gpuInstance].liveProcAcctInfo;
-    status = gpuacctLookupProcEntry(pDS, pid, &pEntry);
+    pGpu = gpumgrGetGpu(gpuInstance);
+    NV_ASSERT_OR_RETURN(pGpu != NULL, NV_ERR_INVALID_STATE);
+
+    bVgpuOnGspEnabled = IS_VGPU_GSP_PLUGIN_OFFLOAD_ENABLED(pGpu);
+    // If on VGX host and the call is for a guest process.
+    if ((hypervisorIsVgxHyper() || bVgpuOnGspEnabled) && IS_VALID_SUBPID(subPid))
+    {
+        NvU32 vmIndex;
+
+        for (vmIndex = 0; vmIndex < MAX_VGPU_DEVICES_PER_PGPU; vmIndex++)
+        {
+            if (pGpuAcct->gpuInstanceInfo[gpuInstance].vmInstanceInfo[vmIndex].vmPId == pid)
+            {
+                pDS = &pGpuAcct->gpuInstanceInfo[gpuInstance].vmInstanceInfo[vmIndex].liveVMProcAcctInfo;
+                break;
+            }
+        }
+    }
+    else
+    {
+        pDS = &pGpuAcct->gpuInstanceInfo[gpuInstance].liveProcAcctInfo;
+    }
+
+    NV_ASSERT_OR_RETURN(pDS != NULL, NV_ERR_INVALID_STATE);
+
+    if ((hypervisorIsVgxHyper() || bVgpuOnGspEnabled) && IS_VALID_SUBPID(subPid))
+    {
+        status = gpuacctLookupProcEntry(pDS, subPid, &pEntry);
+    }
+    else
+    {
+        status = gpuacctLookupProcEntry(pDS, pid, &pEntry);
+    }
 
     if (status != NV_OK)
     {
@@ -929,6 +1081,7 @@ gpuacctGetProcAcctInfo_IMPL
     GPUACCT_GPU_INSTANCE_INFO *pGpuInstanceInfo;
     NvU32 sampleCount;
     NvBool isLiveProcess;
+    NvBool bVgpuOnGspEnabled;
 
     NV_ASSERT_OR_RETURN(pParams != NULL, NV_ERR_INVALID_ARGUMENT);
 
@@ -938,12 +1091,43 @@ gpuacctGetProcAcctInfo_IMPL
     pGpuInstanceInfo = &pGpuAcct->gpuInstanceInfo[pGpu->gpuInstance];
     vmIndex = NV_INVALID_VM_INDEX;
 
+    bVgpuOnGspEnabled = IS_VGPU_GSP_PLUGIN_OFFLOAD_ENABLED(pGpu) && RMCFG_FEATURE_PLATFORM_GSP;
+
+    // if subPid passed in, find the VM index.
+    if ((hypervisorIsVgxHyper() || bVgpuOnGspEnabled) && IS_VALID_SUBPID(pParams->subPid))
+    {
+        NvBool bVMFound = NV_FALSE;
+        NvU32 i;
+
+        if (pParams->pid != NV_INVALID_VM_PID)
+        {
+            for (i = 0; i < MAX_VGPU_DEVICES_PER_PGPU; i++)
+            {
+                if (pGpuInstanceInfo->vmInstanceInfo[i].vmPId == pParams->pid)
+                {
+                    vmIndex = i;
+                    bVMFound = NV_TRUE;
+                    break;
+                }
+            }
+            // If call is for VM process and VM not found, cannot continue, return.
+            if (bVMFound == NV_FALSE)
+            {
+                return NV_ERR_INVALID_ARGUMENT;
+            }
+        }
+    }
+
     isLiveProcess = NV_FALSE;
 
     // Try finding process entry in dead process list.
     if (vmIndex == NV_INVALID_VM_INDEX)
     {
         pDS = &pGpuInstanceInfo->deadProcAcctInfo;
+    }
+    else
+    {
+        pDS = &pGpuInstanceInfo->vmInstanceInfo[vmIndex].deadVMProcAcctInfo;
     }
     NV_ASSERT_OR_RETURN(pDS != NULL, NV_ERR_INVALID_STATE);
 
@@ -970,6 +1154,10 @@ gpuacctGetProcAcctInfo_IMPL
         if (vmIndex == NV_INVALID_VM_INDEX)
         {
             pDS = &pGpuInstanceInfo->liveProcAcctInfo;
+        }
+        else
+        {
+            pDS = &pGpuInstanceInfo->vmInstanceInfo[vmIndex].liveVMProcAcctInfo;
         }
         NV_ASSERT_OR_RETURN(pDS != NULL, NV_ERR_INVALID_STATE);
 
@@ -1013,6 +1201,25 @@ gpuacctGetProcAcctInfo_IMPL
     return NV_OK;
 }
 
+static NV_STATUS  _gpuAcctGetPidValue(GPUACCT_PROC_ENTRY *pEntry, NvU32 vmIndex, NvU32 *nsPid)
+{
+    if ((vmIndex != NV_INVALID_VM_INDEX) ||
+        (pEntry->pClient == NULL) ||
+        (pEntry->pClient->pOsPidInfo == NULL))
+    {
+        *nsPid = pEntry->procId;
+    } 
+    else 
+    {
+        if (osFindNsPid(pEntry->pClient->pOsPidInfo, nsPid) != NV_OK)
+        {
+            return NV_ERR_OBJECT_NOT_FOUND;
+        }
+    }
+
+    return NV_OK;
+}
+
 /*!
  * Gets all the pids for which accounting data is available.
  *
@@ -1032,10 +1239,13 @@ gpuacctGetAcctPids_IMPL
 {
     GPUACCT_PROC_ENTRY *pEntry;
     GPU_ACCT_PROC_LIST *pList;
+    NV_STATUS status;
     OBJGPU *pGpu;
     NvU32 count;
+    NvU32 vmPid;
     NvU32 vmIndex;
     GPUACCT_GPU_INSTANCE_INFO *pGpuInstanceInfo;
+    NvBool bVgpuOnGspEnabled;
 
     ct_assert((NV_MAX_LIVE_ACCT_PROCESS + NV_MAX_DEAD_ACCT_PROCESS) <= NV0000_GPUACCT_PID_MAX_COUNT);
 
@@ -1050,9 +1260,49 @@ gpuacctGetAcctPids_IMPL
     count = 0;
     vmIndex = NV_INVALID_VM_INDEX;
 
+    bVgpuOnGspEnabled = IS_VGPU_GSP_PLUGIN_OFFLOAD_ENABLED(pGpu) && RMCFG_FEATURE_PLATFORM_GSP;
+
+    // Set vmPid if we are on VGX host and pAcctPidsParams->pid is non zero.
+    // pAcctPidsParams->pid will be set when the RM control call is coming
+    // from VGPU plugin, otherwise will be 0.
+    vmPid = ((hypervisorIsVgxHyper() || bVgpuOnGspEnabled) && (pParams->pid != 0)) ?
+            pParams->pid :
+            NV_INVALID_VM_PID;
+
+    // Find vmIndex if vmPid is provided.
+    if (vmPid != NV_INVALID_VM_PID)
+    {
+        NvU32 i;
+        NvBool bVMFound = NV_FALSE;
+
+        for (i = 0; i < MAX_VGPU_DEVICES_PER_PGPU; i++)
+        {
+            if (pGpuInstanceInfo->vmInstanceInfo[i].vmPId == vmPid)
+            {
+                vmIndex = i;
+                bVMFound = NV_TRUE;
+                break;
+            }
+        }
+        if (bVMFound == NV_FALSE)
+        {
+            return NV_ERR_INVALID_ARGUMENT;
+        }
+    }
+
     if (vmIndex == NV_INVALID_VM_INDEX)
     {
+        // Skip dead info if the request is for baremetal and from container.
+        if (osIsInitNs() != NV_TRUE)
+        {
+            goto addLiveProc;
+        }
+
         pList = &pGpuInstanceInfo->deadProcAcctInfo.procList;
+    }
+    else
+    {
+        pList = &pGpuInstanceInfo->vmInstanceInfo[vmIndex].deadVMProcAcctInfo.procList;
     }
     NV_ASSERT_OR_RETURN(pList != NULL, NV_ERR_INVALID_STATE);
 
@@ -1066,9 +1316,14 @@ gpuacctGetAcctPids_IMPL
         }
     }
 
+addLiveProc:
     if (vmIndex == NV_INVALID_VM_INDEX)
     {
         pList = &pGpuInstanceInfo->liveProcAcctInfo.procList;
+    }
+    else
+    {
+        pList = &pGpuInstanceInfo->vmInstanceInfo[vmIndex].liveVMProcAcctInfo.procList;
     }
     NV_ASSERT_OR_RETURN(pList != NULL, NV_ERR_INVALID_STATE);
 
@@ -1078,7 +1333,11 @@ gpuacctGetAcctPids_IMPL
         pEntry = iter.pValue;
         if (pEntry && pEntry->procType == NV_GPUACCT_PROC_TYPE_GPU)
         {
-            pParams->pidTbl[count++] = pEntry->procId;
+            status = _gpuAcctGetPidValue(pEntry, vmIndex, &pParams->pidTbl[count]);
+            if (status == NV_OK)
+            {
+                count++;
+            }
         }
     }
 
@@ -1106,7 +1365,8 @@ gpuacctGetAccountingMode_IMPL
 )
 {
     OBJGPU *pGpu;
-    NvU32 vmPid;
+    NvU32 vmPid = NV_INVALID_VM_PID;
+    NvBool bVgpuOnGspEnabled;
 
     NV_ASSERT_OR_RETURN(pGetAcctModeParams != NULL, NV_ERR_INVALID_ARGUMENT);
 
@@ -1114,10 +1374,12 @@ gpuacctGetAccountingMode_IMPL
     if (pGpu == NULL)
         return NV_ERR_INVALID_ARGUMENT;
 
+    bVgpuOnGspEnabled = IS_VGPU_GSP_PLUGIN_OFFLOAD_ENABLED(pGpu) && RMCFG_FEATURE_PLATFORM_GSP;
+
     // Set vmPid if we are on VGX host and pParams->pid is non zero.
     // pParams->pid will be set when the RM control call is coming
     // from VGPU plugin, otherwise will be 0.
-    vmPid = (hypervisorIsVgxHyper() && (pGetAcctModeParams->pid != 0)) ?
+    vmPid = ((hypervisorIsVgxHyper() || bVgpuOnGspEnabled) && (pGetAcctModeParams->pid != 0)) ?
             pGetAcctModeParams->pid :
             NV_INVALID_VM_PID;
 
@@ -1126,6 +1388,27 @@ gpuacctGetAccountingMode_IMPL
         pGetAcctModeParams->state = pGpu->getProperty(pGpu, PDB_PROP_GPU_ACCOUNTING_ON) ?
                                     NV0000_CTRL_GPU_ACCOUNTING_STATE_ENABLED :
                                     NV0000_CTRL_GPU_ACCOUNTING_STATE_DISABLED;
+    }
+    else
+    {
+        NvU32 vmIndex;
+        NvBool bVMFound;
+
+        GPUACCT_GPU_INSTANCE_INFO *gpuInstanceInfo = &pGpuAcct->gpuInstanceInfo[pGpu->gpuInstance];
+        bVMFound = NV_FALSE;
+        for (vmIndex = 0; vmIndex < MAX_VGPU_DEVICES_PER_PGPU; vmIndex++)
+        {
+            if (gpuInstanceInfo->vmInstanceInfo[vmIndex].vmPId == vmPid)
+            {
+                bVMFound = NV_TRUE;
+                pGetAcctModeParams->state = gpuInstanceInfo->vmInstanceInfo[vmIndex].isAccountingEnabled;
+                break;
+            }
+        }
+        if (bVMFound == NV_FALSE)
+        {
+            return NV_ERR_OBJECT_NOT_FOUND;
+        }
     }
 
     return NV_OK;
@@ -1215,10 +1498,9 @@ gpuacctStopTimerCallbacks
         pGpuInstanceInfo->pTmrEvent = NULL;
     }
 
+done:
     portMemFree(pGpuInstanceInfo->pSamplesParams);
     pGpuInstanceInfo->pSamplesParams = NULL;
-
-  done:
     pGpu->setProperty(pGpu, PDB_PROP_GPU_ACCOUNTING_ON, NV_FALSE);
 }
 
@@ -1243,6 +1525,8 @@ gpuacctEnableAccounting_IMPL
     OBJGPU *pGpu;
     GPUACCT_GPU_INSTANCE_INFO *pGpuInstanceInfo;
     NV_STATUS status = NV_OK;
+    NvU32 vmPid = NV_INVALID_VM_PID;
+    NvBool bVgpuOnGspEnabled;
 
     NV_ASSERT_OR_RETURN(pSetAcctModeParams != NULL, NV_ERR_INVALID_ARGUMENT);
 
@@ -1258,10 +1542,12 @@ gpuacctEnableAccounting_IMPL
     if (IS_MIG_ENABLED(pGpu))
         return NV_ERR_NOT_SUPPORTED;
 
+    bVgpuOnGspEnabled = IS_VGPU_GSP_PLUGIN_OFFLOAD_ENABLED(pGpu) && RMCFG_FEATURE_PLATFORM_GSP;
+
     // Set vmPid if we are on VGX host and pParams->pid is non zero.
     // pParams->pid will be set when the RM control call is coming
     // from VGPU plugin, otherwise will be 0.
-    NvU32 vmPid = (hypervisorIsVgxHyper() && (pSetAcctModeParams->pid != 0)) ?
+    vmPid = ((hypervisorIsVgxHyper() || bVgpuOnGspEnabled) && (pSetAcctModeParams->pid != 0)) ?
                    pSetAcctModeParams->pid :
                    NV_INVALID_VM_PID;
 
@@ -1272,6 +1558,24 @@ gpuacctEnableAccounting_IMPL
         status = gpuacctStartTimerCallbacks(pGpu, pGpuInstanceInfo);
         if (status != NV_OK)
             return status;
+    }
+    else
+    {
+        NvU32 vmIndex;
+        NvBool bVMFound = NV_FALSE;
+        for(vmIndex = 0; vmIndex < MAX_VGPU_DEVICES_PER_PGPU; vmIndex++)
+        {
+            if (pGpuInstanceInfo->vmInstanceInfo[vmIndex].vmPId == vmPid)
+            {
+                bVMFound = NV_TRUE;
+                pGpuInstanceInfo->vmInstanceInfo[vmIndex].isAccountingEnabled = NV0000_CTRL_GPU_ACCOUNTING_STATE_ENABLED;
+                break;
+            }
+        }
+        if (bVMFound == NV_FALSE)
+        {
+            return NV_ERR_OBJECT_NOT_FOUND;
+        }
     }
 
     return status;
@@ -1298,8 +1602,9 @@ gpuacctDisableAccounting_IMPL
 {
     GPU_ACCT_PROC_DATA_STORE *pDS = NULL;
     OBJGPU *pGpu;
-    NvU32 vmPid;
+    NvU32 vmPid = NV_INVALID_VM_PID;
     GPUACCT_GPU_INSTANCE_INFO *pGpuInstanceInfo;
+    NvBool bVgpuOnGspEnabled;
 
     NV_ASSERT_OR_RETURN(pSetAcctModeParams != NULL, NV_ERR_INVALID_ARGUMENT);
 
@@ -1307,10 +1612,12 @@ gpuacctDisableAccounting_IMPL
     if (pGpu == NULL)
         return NV_ERR_INVALID_ARGUMENT;
 
+    bVgpuOnGspEnabled = IS_VGPU_GSP_PLUGIN_OFFLOAD_ENABLED(pGpu) && RMCFG_FEATURE_PLATFORM_GSP;
+
     // Set vmPid if we are on VGX host and pParams->pid is non zero.
     // pParams->pid will be set when the RM control call is coming
     // from VGPU plugin, otherwise will be 0.
-    vmPid = (hypervisorIsVgxHyper() && (pSetAcctModeParams->pid != 0)) ?
+    vmPid = ((hypervisorIsVgxHyper() || bVgpuOnGspEnabled) && (pSetAcctModeParams->pid != 0)) ?
              pSetAcctModeParams->pid :
              NV_INVALID_VM_PID;
 
@@ -1318,7 +1625,7 @@ gpuacctDisableAccounting_IMPL
     // start gathering accounting data regardless of when guest comes and goes.
     // Don't allow user to disable accounting mode on VGX host.
     if (pGpu->getProperty(pGpu, PDB_PROP_GPU_ACCOUNTING_ON) &&
-        hypervisorIsVgxHyper() && (vmPid == NV_INVALID_VM_PID))
+        (hypervisorIsVgxHyper() || bVgpuOnGspEnabled) && (vmPid == NV_INVALID_VM_PID))
     {
         return NV_ERR_NOT_SUPPORTED;
     }
@@ -1330,6 +1637,21 @@ gpuacctDisableAccounting_IMPL
         gpuacctStopTimerCallbacks(pGpu, pGpuInstanceInfo);
 
         pDS = &pGpuInstanceInfo->liveProcAcctInfo;
+    }
+    else
+    {
+        NvU32 i;
+
+        for (i = 0; i < MAX_VGPU_DEVICES_PER_PGPU; i++)
+        {
+            if (pGpuInstanceInfo->vmInstanceInfo[i].vmPId == vmPid)
+            {
+                pGpuInstanceInfo->vmInstanceInfo[i].isAccountingEnabled = NV0000_CTRL_GPU_ACCOUNTING_STATE_DISABLED;
+
+                pDS = &pGpuInstanceInfo->vmInstanceInfo[i].liveVMProcAcctInfo;
+                break;
+            }
+        }
     }
     NV_ASSERT_OR_RETURN(pDS != NULL, NV_ERR_INVALID_STATE);
 
@@ -1358,21 +1680,40 @@ gpuacctClearAccountingData_IMPL
     NV0000_CTRL_GPUACCT_CLEAR_ACCOUNTING_DATA_PARAMS *pClearAcctDataParams
 )
 {
-    NvU32 vmPid;
+    OBJGPU *pGpu;
+    NvU32 vmPid = NV_INVALID_VM_PID;
     GPUACCT_GPU_INSTANCE_INFO *gpuInstanceInfo = &pGpuAcct->gpuInstanceInfo[gpuInstance];
+    NvBool bVgpuOnGspEnabled;
 
+    pGpu = gpumgrGetGpu(gpuInstance);
+    NV_ASSERT_OR_RETURN(pGpu != NULL, NV_ERR_INVALID_ARGUMENT);
     NV_ASSERT_OR_RETURN(pClearAcctDataParams != NULL, NV_ERR_INVALID_ARGUMENT);
+
+    bVgpuOnGspEnabled = IS_VGPU_GSP_PLUGIN_OFFLOAD_ENABLED(pGpu) && RMCFG_FEATURE_PLATFORM_GSP;
 
     // Set vmPid if we are on VGX host and pParams->pid is non zero.
     // pParams->pid will be set when the RM control call is coming
     // from VGPU plugin, otherwise will be 0.
-    vmPid = (hypervisorIsVgxHyper() && (pClearAcctDataParams->pid != 0)) ?
+    vmPid = ((hypervisorIsVgxHyper() || bVgpuOnGspEnabled) && (pClearAcctDataParams->pid != 0)) ?
             pClearAcctDataParams->pid :
             NV_INVALID_VM_PID;
 
     if (vmPid == NV_INVALID_VM_PID)
     {
         gpuacctCleanupDataStore(&gpuInstanceInfo->deadProcAcctInfo);
+    }
+    else
+    {
+        NvU32 vmIndex;
+
+        for (vmIndex = 0; vmIndex < MAX_VGPU_DEVICES_PER_PGPU; vmIndex++)
+        {
+            if (gpuInstanceInfo->vmInstanceInfo[vmIndex].vmPId == vmPid)
+            {
+                gpuacctCleanupDataStore(&gpuInstanceInfo->vmInstanceInfo[vmIndex].deadVMProcAcctInfo);
+                break;
+            }
+        }
     }
 
     return NV_OK;
@@ -1395,5 +1736,156 @@ static NvU64 gpuacctGetCurrTime
     currTime = (currTime * 1000000) + currTimeLo;
 
     return currTime;
+}
+
+/*!
+ * Destroys accounting data for the VM.
+ *
+ * @param[in]  vmInstanceInfo   VM instance.
+  */
+static void
+_vmAcctDestroyDataStore(GPUACCT_VM_INSTANCE_INFO *pVMInstanceInfo)
+{
+    if (pVMInstanceInfo == NULL)
+    {
+        return;
+    }
+
+    gpuacctDestroyDataStore(&pVMInstanceInfo->liveVMProcAcctInfo);
+    gpuacctDestroyDataStore(&pVMInstanceInfo->deadVMProcAcctInfo);
+}
+
+/*!
+ * Initilizes data store for a VM
+ *
+ * @param[in]  vmInstanceInfo   VM instance.
+ *
+ * @return  NV_OK
+ * @return  NV_ERR_INVALID_ARGUMENT
+ * @return  NV_ERR_INVALID_STATE
+ */
+static NV_STATUS
+vmAcctInitDataStore(GPUACCT_VM_INSTANCE_INFO *vmInstanceInfo)
+{
+    NV_STATUS status;
+
+    if (vmInstanceInfo == NULL)
+    {
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+
+    status = gpuacctInitDataStore(&vmInstanceInfo->deadVMProcAcctInfo);
+    if (status != NV_OK)
+    {
+        gpuacctDestroyDataStore(&vmInstanceInfo->deadVMProcAcctInfo);
+        return status;
+    }
+
+    status = gpuacctInitDataStore(&vmInstanceInfo->liveVMProcAcctInfo);
+    if (status != NV_OK)
+    {
+        gpuacctDestroyDataStore(&vmInstanceInfo->deadVMProcAcctInfo);
+        gpuacctDestroyDataStore(&vmInstanceInfo->liveVMProcAcctInfo);
+    }
+
+    return status;
+}
+
+/*!
+ * Top level function to initiate VM data store creation.
+ *
+ * @param[in]  pSys             Pointer of Sys.
+ * @param[in]  pGpu             Pointer to physical gpu object.
+ * @param[in]  vmPid            VM/Plugin process id.
+*/
+void
+vmAcctInitState(OBJGPU *pGpu, NvU32 vmPid)
+{
+    NvU32 vmIndex;
+    NvU32 targetVMIndex;
+    NvBool vmInstanceFound;
+
+    OBJSYS *pSys = SYS_GET_INSTANCE();
+    GpuAccounting *pGpuAcct = SYS_GET_GPUACCT(pSys);
+
+    if (pGpu && pGpuAcct)
+    {
+        GPUACCT_GPU_INSTANCE_INFO *gpuInstanceInfo = &pGpuAcct->gpuInstanceInfo[pGpu->gpuInstance];
+        targetVMIndex = 0;
+        vmInstanceFound = NV_FALSE;
+
+        // Check if we have data store for this VM pid.
+        // If found, delete those data store.
+        for (vmIndex = 0; vmIndex < MAX_VGPU_DEVICES_PER_PGPU; vmIndex++)
+        {
+            GPUACCT_VM_INSTANCE_INFO *vmInstanceInfo = &gpuInstanceInfo->vmInstanceInfo[vmIndex];
+
+            if (vmPid == vmInstanceInfo->vmPId)
+            {
+                vmInstanceFound = NV_TRUE;
+                targetVMIndex   = vmIndex;
+
+                _vmAcctDestroyDataStore(vmInstanceInfo);
+
+                vmInstanceInfo->isAccountingEnabled = NV0000_CTRL_GPU_ACCOUNTING_STATE_DISABLED;
+
+                break;
+            }
+            if ((vmInstanceFound == NV_FALSE) && (vmInstanceInfo->vmPId == 0))
+            {
+                vmInstanceFound = NV_TRUE;
+                targetVMIndex   = vmIndex;
+            }
+        }
+
+        if (vmInstanceFound == NV_TRUE)
+        {
+            GPUACCT_VM_INSTANCE_INFO *vmInstanceInfo = &gpuInstanceInfo->vmInstanceInfo[targetVMIndex];
+
+            if (vmAcctInitDataStore(vmInstanceInfo) == NV_OK)
+            {
+                vmInstanceInfo->vmPId = vmPid;
+                vmInstanceInfo->isAccountingEnabled = NV0000_CTRL_GPU_ACCOUNTING_STATE_DISABLED;
+            }
+            else
+            {
+                NV_PRINTF(LEVEL_INFO,
+                          "Failed to create process accounting data store for VM Pid : %d\n",
+                          vmInstanceInfo->vmPId);
+            }
+        }
+    }
+}
+
+/*!
+ * Top level function to destroy VM data store.
+ *
+ * @param[in]  pSys           Pointer of Sys.
+ * @param[in]  vmPid          VM/Plugin process id.
+ * @param[in]  gpuPciId       gpuid of the physical gpu associated with the VM.
+   */
+void
+vmAcctDestructState(NvU32 vmPid, OBJGPU *pGpu)
+{
+    GpuAccounting *pGpuAcct;
+    NvU32 vmIndex;
+
+    OBJSYS *pSys = SYS_GET_INSTANCE();
+    pGpuAcct = SYS_GET_GPUACCT(pSys);
+
+    if (pGpu && pGpuAcct)
+    {
+        for (vmIndex = 0; vmIndex < MAX_VGPU_DEVICES_PER_PGPU; vmIndex++)
+        {
+            GPUACCT_VM_INSTANCE_INFO *vmInstanceInfo = &pGpuAcct->gpuInstanceInfo[pGpu->gpuInstance].vmInstanceInfo[vmIndex];
+            if (vmPid == vmInstanceInfo->vmPId)
+            {
+                _vmAcctDestroyDataStore(vmInstanceInfo);
+                vmInstanceInfo->vmPId = 0;
+
+                break;
+            }
+        }
+    }
 }
 

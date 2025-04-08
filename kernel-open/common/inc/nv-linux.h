@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2001-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2001-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -35,6 +35,7 @@
 #include "os-interface.h"
 #include "nv-timer.h"
 #include "nv-time.h"
+#include "nv-chardev-numbers.h"
 
 #define NV_KERNEL_NAME "Linux"
 
@@ -57,14 +58,10 @@
 #include <linux/version.h>
 #include <linux/utsname.h>
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 32)
-#error "This driver does not support kernels older than 2.6.32!"
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(2, 7, 0)
-#  define KERNEL_2_6
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)
-#  define KERNEL_3
-#else
-#error "This driver does not support development kernels!"
+#if LINUX_VERSION_CODE == KERNEL_VERSION(4, 4, 0)
+// Version 4.4 is allowed, temporarily, although not officially supported.
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
+#error "This driver does not support kernels older than Linux 4.15!"
 #endif
 
 #if defined (CONFIG_SMP) && !defined (__SMP__)
@@ -191,13 +188,6 @@
  */
 #define NV_CURRENT_EUID() (__kuid_val(current->cred->euid))
 
-#if !defined(NV_KUID_T_PRESENT)
-static inline uid_t __kuid_val(uid_t uid)
-{
-    return uid;
-}
-#endif
-
 #if defined(CONFIG_VGA_ARB)
 #include <linux/vgaarb.h>
 #endif
@@ -218,6 +208,7 @@ static inline uid_t __kuid_val(uid_t uid)
 #include <linux/highmem.h>
 
 #include <linux/nodemask.h>
+#include <linux/memory.h>
 
 #include <linux/workqueue.h>        /* workqueue                        */
 #include "nv-kthread-q.h"           /* kthread based queue              */
@@ -234,28 +225,10 @@ static inline uid_t __kuid_val(uid_t uid)
 #include <asm-generic/pci-dma-compat.h>
 #endif
 
-#if defined(NV_EFI_ENABLED_PRESENT) && defined(NV_EFI_ENABLED_ARGUMENT_COUNT)
-#if (NV_EFI_ENABLED_ARGUMENT_COUNT == 1)
-#define NV_EFI_ENABLED() efi_enabled(EFI_BOOT)
-#else
-#error "NV_EFI_ENABLED_ARGUMENT_COUNT value unrecognized!"
-#endif
-#elif (defined(NV_EFI_ENABLED_PRESENT) || defined(efi_enabled))
-#define NV_EFI_ENABLED() efi_enabled
-#else
-#define NV_EFI_ENABLED() 0
-#endif
-
 #if defined(CONFIG_CRAY_XT)
 #include <cray/cray_nvidia.h>
 NV_STATUS nvos_forward_error_to_cray(struct pci_dev *, NvU32,
         const char *, va_list);
-#endif
-
-#if defined(NVCPU_PPC64LE) && defined(CONFIG_EEH)
-#include <asm/eeh.h>
-#define NV_PCI_ERROR_RECOVERY_ENABLED() eeh_enabled()
-#define NV_PCI_ERROR_RECOVERY
 #endif
 
 #if defined(NV_ASM_SET_MEMORY_H_PRESENT)
@@ -266,7 +239,7 @@ NV_STATUS nvos_forward_error_to_cray(struct pci_dev *, NvU32,
 #undef NV_SET_PAGES_UC_PRESENT
 #endif
 
-#if !defined(NVCPU_AARCH64) && !defined(NVCPU_PPC64LE)
+#if !defined(NVCPU_AARCH64) && !defined(NVCPU_PPC64LE) && !defined(NVCPU_RISCV64)
 #if !defined(NV_SET_MEMORY_UC_PRESENT) && !defined(NV_SET_PAGES_UC_PRESENT)
 #error "This driver requires the ability to change memory types!"
 #endif
@@ -424,32 +397,6 @@ extern int nv_pat_mode;
 #define NV_GFP_DMA32 (NV_GFP_KERNEL)
 #endif
 
-extern NvBool nvos_is_chipset_io_coherent(void);
-
-#if defined(NVCPU_X86_64)
-#define CACHE_FLUSH()  asm volatile("wbinvd":::"memory")
-#define WRITE_COMBINE_FLUSH() asm volatile("sfence":::"memory")
-#elif defined(NVCPU_AARCH64)
-    static inline void nv_flush_cache_cpu(void *info)
-    {
-        if (!nvos_is_chipset_io_coherent())
-        {
-#if defined(NV_FLUSH_CACHE_ALL_PRESENT)
-            flush_cache_all();
-#else
-            WARN_ONCE(0, "NVRM: kernel does not support flush_cache_all()\n");
-#endif
-        }
-    }
-#define CACHE_FLUSH()            nv_flush_cache_cpu(NULL)
-#define CACHE_FLUSH_ALL()        on_each_cpu(nv_flush_cache_cpu, NULL, 1)
-#define WRITE_COMBINE_FLUSH()    mb()
-#elif defined(NVCPU_PPC64LE)
-#define CACHE_FLUSH()            asm volatile("sync;  \n" \
-                                              "isync; \n" ::: "memory")
-#define WRITE_COMBINE_FLUSH()    CACHE_FLUSH()
-#endif
-
 typedef enum
 {
     NV_MEMORY_TYPE_SYSTEM,      /* Memory mapped for ROM, SBIOS and physical RAM. */
@@ -458,7 +405,7 @@ typedef enum
     NV_MEMORY_TYPE_DEVICE_MMIO, /* All kinds of MMIO referred by NVRM e.g. BARs and MCFG of device */
 } nv_memory_type_t;
 
-#if defined(NVCPU_AARCH64) || defined(NVCPU_PPC64LE)
+#if defined(NVCPU_AARCH64) || defined(NVCPU_PPC64LE) || defined(NVCPU_RISCV64)
 #define NV_ALLOW_WRITE_COMBINING(mt)    1
 #elif defined(NVCPU_X86_64)
 #if defined(NV_ENABLE_PAT_SUPPORT)
@@ -517,11 +464,13 @@ static inline void *nv_vmalloc(unsigned long size)
     void *ptr = __vmalloc(size, GFP_KERNEL);
 #endif
     if (ptr)
+    {
         NV_MEMDBG_ADD(ptr, size);
+    }
     return ptr;
 }
 
-static inline void nv_vfree(void *ptr, NvU32 size)
+static inline void nv_vfree(void *ptr, NvU64 size)
 {
     NV_MEMDBG_REMOVE(ptr, size);
     vfree(ptr);
@@ -529,9 +478,15 @@ static inline void nv_vfree(void *ptr, NvU32 size)
 
 static inline void *nv_ioremap(NvU64 phys, NvU64 size)
 {
+#if IS_ENABLED(CONFIG_INTEL_TDX_GUEST) && defined(NV_IOREMAP_DRIVER_HARDENED_PRESENT)
+    void *ptr = ioremap_driver_hardened(phys, size);
+#else
     void *ptr = ioremap(phys, size);
+#endif
     if (ptr)
+    {
         NV_MEMDBG_ADD(ptr, size);
+    }
     return ptr;
 }
 
@@ -542,11 +497,11 @@ static inline void *nv_ioremap_nocache(NvU64 phys, NvU64 size)
 
 static inline void *nv_ioremap_cache(NvU64 phys, NvU64 size)
 {
-#if defined(NV_IOREMAP_CACHE_PRESENT)
-    void *ptr = ioremap_cache(phys, size);
-    if (ptr)
-        NV_MEMDBG_ADD(ptr, size);
-    return ptr;
+    void *ptr = NULL;
+#if IS_ENABLED(CONFIG_INTEL_TDX_GUEST) && defined(NV_IOREMAP_CACHE_SHARED_PRESENT)
+    ptr = ioremap_cache_shared(phys, size);
+#elif defined(NV_IOREMAP_CACHE_PRESENT)
+    ptr = ioremap_cache(phys, size);
 #elif defined(NVCPU_PPC64LE)
     //
     // ioremap_cache() has been only implemented correctly for ppc64le with
@@ -561,25 +516,34 @@ static inline void *nv_ioremap_cache(NvU64 phys, NvU64 size)
     // (commit 40f1ce7fb7e8, kernel 3.0+) and that covers all kernels we
     // support on power.
     //
-    void *ptr = ioremap_prot(phys, size, pgprot_val(PAGE_KERNEL));
-    if (ptr)
-        NV_MEMDBG_ADD(ptr, size);
-    return ptr;
+    ptr = ioremap_prot(phys, size, pgprot_val(PAGE_KERNEL));
 #else
     return nv_ioremap(phys, size);
 #endif
+
+    if (ptr)
+    {
+        NV_MEMDBG_ADD(ptr, size);
+    }
+    return ptr;
 }
 
 static inline void *nv_ioremap_wc(NvU64 phys, NvU64 size)
 {
-#if defined(NV_IOREMAP_WC_PRESENT)
-    void *ptr = ioremap_wc(phys, size);
-    if (ptr)
-        NV_MEMDBG_ADD(ptr, size);
-    return ptr;
+    void *ptr = NULL;
+#if IS_ENABLED(CONFIG_INTEL_TDX_GUEST) && defined(NV_IOREMAP_DRIVER_HARDENED_WC_PRESENT)
+    ptr = ioremap_driver_hardened_wc(phys, size);
+#elif defined(NV_IOREMAP_WC_PRESENT)
+    ptr = ioremap_wc(phys, size);
 #else
     return nv_ioremap_nocache(phys, size);
 #endif
+
+    if (ptr)
+    {
+        NV_MEMDBG_ADD(ptr, size);
+    }
+    return ptr;
 }
 
 static inline void nv_iounmap(void *ptr, NvU64 size)
@@ -592,16 +556,19 @@ static NvBool nv_numa_node_has_memory(int node_id)
 {
     if (node_id < 0 || node_id >= MAX_NUMNODES)
         return NV_FALSE;
-#if defined(NV_NODE_STATES_N_MEMORY_PRESENT)
     return node_state(node_id, N_MEMORY) ? NV_TRUE : NV_FALSE;
-#else
-    return node_state(node_id, N_HIGH_MEMORY) ? NV_TRUE : NV_FALSE;
-#endif
 }
 
 #define NV_KMALLOC(ptr, size) \
     { \
         (ptr) = kmalloc(size, NV_GFP_KERNEL); \
+        if (ptr) \
+            NV_MEMDBG_ADD(ptr, size); \
+    }
+
+#define NV_KZALLOC(ptr, size) \
+    { \
+        (ptr) = kzalloc(size, NV_GFP_KERNEL); \
         if (ptr) \
             NV_MEMDBG_ADD(ptr, size); \
     }
@@ -636,7 +603,7 @@ static NvBool nv_numa_node_has_memory(int node_id)
 
 #define NV_ALLOC_PAGES_NODE(ptr, nid, order, gfp_mask) \
     { \
-        (ptr) = (unsigned long)page_address(alloc_pages_node(nid, gfp_mask, order)); \
+        (ptr) = (unsigned long) alloc_pages_node(nid, gfp_mask, order); \
     }
 
 #define NV_GET_FREE_PAGES(ptr, order, gfp_mask)      \
@@ -648,6 +615,26 @@ static NvBool nv_numa_node_has_memory(int node_id)
     {                                                \
         free_pages(ptr, order);                      \
     }
+
+static inline pgprot_t nv_sme_clr(pgprot_t prot)
+{
+#if defined(__sme_clr)
+    return __pgprot(__sme_clr(pgprot_val(prot)));
+#else
+    return prot;
+#endif // __sme_clr
+}
+
+static inline pgprot_t nv_adjust_pgprot(pgprot_t vm_prot, NvU32 extra)
+{
+    pgprot_t prot = __pgprot(pgprot_val(vm_prot) | extra);
+
+#if defined(pgprot_decrypted)
+    return pgprot_decrypted(prot);
+#else
+    return nv_sme_clr(prot);
+#endif // pgprot_decrypted
+}
 
 #if defined(PAGE_KERNEL_NOENC)
 #if defined(__pgprot_mask)
@@ -670,7 +657,8 @@ static inline NvUPtr nv_vmap(struct page **pages, NvU32 page_count,
 #if defined(PAGE_KERNEL_NOENC)
     if (unencrypted)
     {
-        prot = cached ? PAGE_KERNEL_NOENC : NV_PAGE_KERNEL_NOCACHE_NOENC;
+        prot = cached ? nv_adjust_pgprot(PAGE_KERNEL_NOENC, 0) :
+                        nv_adjust_pgprot(NV_PAGE_KERNEL_NOCACHE_NOENC, 0);
     }
     else
 #endif
@@ -683,7 +671,9 @@ static inline NvUPtr nv_vmap(struct page **pages, NvU32 page_count,
     /* All memory cached in PPC64LE; can't honor 'cached' input. */
     ptr = vmap(pages, page_count, VM_MAP, prot);
     if (ptr)
+    {
         NV_MEMDBG_ADD(ptr, page_count * PAGE_SIZE);
+    }
     return (NvUPtr)ptr;
 }
 
@@ -728,6 +718,7 @@ static inline dma_addr_t nv_phys_to_dma(struct device *dev, NvU64 pa)
 #endif
 }
 
+#define NV_GET_OFFSET_IN_PAGE(phys_page) offset_in_page(phys_page)
 #define NV_GET_PAGE_STRUCT(phys_page) virt_to_page(__va(phys_page))
 #define NV_VMA_PGOFF(vma)             ((vma)->vm_pgoff)
 #define NV_VMA_SIZE(vma)              ((vma)->vm_end - (vma)->vm_start)
@@ -736,7 +727,6 @@ static inline dma_addr_t nv_phys_to_dma(struct device *dev, NvU64 pa)
 #define NV_VMA_FILE(vma)              ((vma)->vm_file)
 
 #define NV_DEVICE_MINOR_NUMBER(x)     minor((x)->i_rdev)
-#define NV_CONTROL_DEVICE_MINOR       255
 
 #define NV_PCI_DISABLE_DEVICE(pci_dev)                           \
     {                                                            \
@@ -838,25 +828,23 @@ static inline dma_addr_t nv_phys_to_dma(struct device *dev, NvU64 pa)
     })
 #endif
 
-#if defined(NV_PCI_STOP_AND_REMOVE_BUS_DEVICE_PRESENT)  // introduced in 3.4.9
+#if defined(NV_PCI_STOP_AND_REMOVE_BUS_DEVICE_PRESENT)  // introduced in 3.18-rc1 for aarch64
 #define NV_PCI_STOP_AND_REMOVE_BUS_DEVICE(pci_dev) pci_stop_and_remove_bus_device(pci_dev)
-#elif defined(NV_PCI_REMOVE_BUS_DEVICE_PRESENT) // introduced in 2.6
-#define NV_PCI_STOP_AND_REMOVE_BUS_DEVICE(pci_dev) pci_remove_bus_device(pci_dev)
 #endif
 
 #define NV_PRINT_AT(nv_debug_level,at)                                           \
     {                                                                            \
         nv_printf(nv_debug_level,                                                \
-            "NVRM: VM: %s:%d: 0x%p, %d page(s), count = %d, flags = 0x%08x, "    \
+            "NVRM: VM: %s:%d: 0x%p, %d page(s), count = %d, "                    \
             "page_table = 0x%p\n",  __FUNCTION__, __LINE__, at,                  \
             at->num_pages, NV_ATOMIC_READ(at->usage_count),                      \
-            at->flags, at->page_table);                                          \
+            at->page_table);                                                     \
     }
 
 #define NV_PRINT_VMA(nv_debug_level,vma)                                                 \
     {                                                                                    \
         nv_printf(nv_debug_level,                                                        \
-            "NVRM: VM: %s:%d: 0x%lx - 0x%lx, 0x%08x bytes @ 0x%016llx, 0x%p, 0x%p\n",    \
+            "NVRM: VM: %s:%d: 0x%lx - 0x%lx, 0x%08lx bytes @ 0x%016llx, 0x%p, 0x%p\n",    \
             __FUNCTION__, __LINE__, vma->vm_start, vma->vm_end, NV_VMA_SIZE(vma),        \
             NV_VMA_OFFSET(vma), NV_VMA_PRIVATE(vma), NV_VMA_FILE(vma));                  \
     }
@@ -885,16 +873,6 @@ typedef void irqreturn_t;
 
 #ifndef PCI_CAP_ID_EXP
 #define PCI_CAP_ID_EXP 0x10
-#endif
-
-/*
- * On Linux on PPC64LE enable basic support for Linux PCI error recovery (see
- * Documentation/PCI/pci-error-recovery.txt). Currently RM only supports error
- * notification and data collection, not actual recovery of the device.
- */
-#if defined(NVCPU_PPC64LE) && defined(CONFIG_EEH)
-#include <asm/eeh.h>
-#define NV_PCI_ERROR_RECOVERY
 #endif
 
 /*
@@ -957,35 +935,15 @@ static inline int nv_remap_page_range(struct vm_area_struct *vma,
     return ret;
 }
 
-static inline pgprot_t nv_adjust_pgprot(pgprot_t vm_prot, NvU32 extra)
-{
-    pgprot_t prot = __pgprot(pgprot_val(vm_prot) | extra);
-#if defined(CONFIG_AMD_MEM_ENCRYPT) && defined(NV_PGPROT_DECRYPTED_PRESENT)
-    /*
-     * When AMD memory encryption is enabled, device memory mappings with the
-     * C-bit set read as 0xFF, so ensure the bit is cleared for user mappings.
-     *
-     * If cc_mkdec() is present, then pgprot_decrypted() can't be used.
-     */
-#if defined(NV_CC_MKDEC_PRESENT)
-    prot =  __pgprot(__sme_clr(pgprot_val(vm_prot)));
-#else
-    prot = pgprot_decrypted(prot);
-#endif
-#endif
-
-    return prot;
-}
-
 static inline int nv_io_remap_page_range(struct vm_area_struct *vma,
-    NvU64 phys_addr, NvU64 size, NvU32 extra_prot)
+    NvU64 phys_addr, NvU64 size, NvU32 extra_prot, NvU64 start)
 {
     int ret = -1;
 #if !defined(NV_XEN_SUPPORT_FULLY_VIRTUALIZED_KERNEL)
-    ret = nv_remap_page_range(vma, vma->vm_start, phys_addr, size,
+    ret = nv_remap_page_range(vma, start, phys_addr, size,
         nv_adjust_pgprot(vma->vm_page_prot, extra_prot));
 #else
-    ret = io_remap_pfn_range(vma, vma->vm_start, (phys_addr >> PAGE_SHIFT),
+    ret = io_remap_pfn_range(vma, start, (phys_addr >> PAGE_SHIFT),
         size, nv_adjust_pgprot(vma->vm_page_prot, extra_prot));
 #endif
     return ret;
@@ -1037,6 +995,32 @@ static inline vm_fault_t nv_insert_pfn(struct vm_area_struct *vma,
     return VM_FAULT_SIGBUS;
 }
 
+/* Converts BAR index to Linux specific PCI BAR index */
+static inline NvU8 nv_bar_index_to_os_bar_index
+(
+    struct pci_dev *dev,
+    NvU8 nv_bar_index
+)
+{
+    NvU8 bar_index = 0;
+    NvU8 i;
+
+    BUG_ON(nv_bar_index >= NV_GPU_NUM_BARS);
+
+    for (i = 0; i < nv_bar_index; i++)
+    {
+        if (NV_PCI_RESOURCE_FLAGS(dev, bar_index) & PCI_BASE_ADDRESS_MEM_TYPE_64)
+        {
+            bar_index += 2;
+        }
+        else
+        {
+            bar_index++;
+        }
+    }
+
+    return bar_index;
+}
 
 #define NV_PAGE_MASK    (NvU64)(long)PAGE_MASK
 
@@ -1083,6 +1067,8 @@ static inline void nv_kmem_ctor_dummy(void *arg)
         kmem_cache_destroy(kmem_cache);     \
     }
 
+#define NV_KMEM_CACHE_ALLOC_ATOMIC(kmem_cache)     \
+    kmem_cache_alloc(kmem_cache, GFP_ATOMIC)
 #define NV_KMEM_CACHE_ALLOC(kmem_cache)     \
     kmem_cache_alloc(kmem_cache, GFP_KERNEL)
 #define NV_KMEM_CACHE_FREE(ptr, kmem_cache) \
@@ -1109,15 +1095,35 @@ static inline void *nv_kmem_cache_zalloc(struct kmem_cache *k, gfp_t flags)
 #endif
 }
 
+static inline int nv_kmem_cache_alloc_stack_atomic(nvidia_stack_t **stack)
+{
+    nvidia_stack_t *sp = NULL;
+#if defined(NVCPU_X86_64)
+    if (rm_is_altstack_in_use())
+    {
+        sp = NV_KMEM_CACHE_ALLOC_ATOMIC(nvidia_stack_t_cache);
+        if (sp == NULL)
+            return -ENOMEM;
+        sp->size = sizeof(sp->stack);
+        sp->top = sp->stack + sp->size;
+    }
+#endif
+    *stack = sp;
+    return 0;
+}
+
 static inline int nv_kmem_cache_alloc_stack(nvidia_stack_t **stack)
 {
     nvidia_stack_t *sp = NULL;
 #if defined(NVCPU_X86_64)
-    sp = NV_KMEM_CACHE_ALLOC(nvidia_stack_t_cache);
-    if (sp == NULL)
-        return -ENOMEM;
-    sp->size = sizeof(sp->stack);
-    sp->top = sp->stack + sp->size;
+    if (rm_is_altstack_in_use())
+    {
+        sp = NV_KMEM_CACHE_ALLOC(nvidia_stack_t_cache);
+        if (sp == NULL)
+            return -ENOMEM;
+        sp->size = sizeof(sp->stack);
+        sp->top = sp->stack + sp->size;
+    }
 #endif
     *stack = sp;
     return 0;
@@ -1126,7 +1132,7 @@ static inline int nv_kmem_cache_alloc_stack(nvidia_stack_t **stack)
 static inline void nv_kmem_cache_free_stack(nvidia_stack_t *stack)
 {
 #if defined(NVCPU_X86_64)
-    if (stack != NULL)
+    if (stack != NULL && rm_is_altstack_in_use())
     {
         NV_KMEM_CACHE_FREE(stack, nvidia_stack_t_cache);
     }
@@ -1161,15 +1167,15 @@ typedef struct nvidia_pte_s {
     unsigned int    page_count;
 } nvidia_pte_t;
 
-
-
-
-
-
-
-
-
-
+#if defined(CONFIG_DMA_SHARED_BUFFER)
+/* Standard dma_buf-related information. */
+struct nv_dma_buf
+{
+    struct dma_buf *dma_buf;
+    struct dma_buf_attachment *dma_attach;
+    struct sg_table *sgt;
+};
+#endif // CONFIG_DMA_SHARED_BUFFER
 
 typedef struct nv_alloc_s {
     struct nv_alloc_s *next;
@@ -1181,11 +1187,12 @@ typedef struct nv_alloc_s {
         NvBool zeroed      : 1;
         NvBool aliased     : 1;
         NvBool user        : 1;
-        NvBool node0       : 1;
+        NvBool node        : 1;
         NvBool peer_io     : 1;
         NvBool physical    : 1;
         NvBool unencrypted : 1;
         NvBool coherent    : 1;
+        NvBool carveout    : 1;
     } flags;
     unsigned int   cache_type;
     unsigned int   num_pages;
@@ -1195,6 +1202,7 @@ typedef struct nv_alloc_s {
     unsigned int   pid;
     struct page  **user_pages;
     NvU64         guest_id;             /* id of guest VM */
+    NvS32         node_id;              /* Node id for memory allocation when node is set in flags */
     void          *import_priv;
     struct sg_table *import_sgt;
 } nv_alloc_t;
@@ -1307,7 +1315,7 @@ nv_dma_maps_swiotlb(struct device *dev)
      * SEV memory encryption") forces SWIOTLB to be enabled when AMD SEV 
      * is active in all cases.
      */
-    if (os_sev_enabled)
+    if (os_cc_enabled)
         swiotlb_in_use = NV_TRUE;
 #endif
 
@@ -1361,7 +1369,19 @@ typedef struct nv_dma_map_s {
          i < dm->mapping.discontig.submap_count;                              \
          i++, sm = &dm->mapping.discontig.submaps[i])
 
+/*
+ * On 4K ARM kernels, use max submap size a multiple of 64K to keep nv-p2p happy.
+ * Despite 4K OS pages, we still use 64K P2P pages due to dependent modules still using 64K.
+ * Instead of using (4G-4K), use max submap size as (4G-64K) since the mapped IOVA range
+ * must be aligned at 64K boundary.
+ */
+#if defined(CONFIG_ARM64_4K_PAGES)
+#define NV_DMA_U32_MAX_4K_PAGES           ((NvU32)((NV_U32_MAX >> PAGE_SHIFT) + 1))
+#define NV_DMA_SUBMAP_MAX_PAGES           ((NvU32)(NV_DMA_U32_MAX_4K_PAGES - 16))
+#else
 #define NV_DMA_SUBMAP_MAX_PAGES           ((NvU32)(NV_U32_MAX >> PAGE_SHIFT))
+#endif
+
 #define NV_DMA_SUBMAP_IDX_TO_PAGE_IDX(s)  (s * NV_DMA_SUBMAP_MAX_PAGES)
 
 /*
@@ -1370,8 +1390,7 @@ typedef struct nv_dma_map_s {
  * xen_swiotlb_map_sg_attrs may try to route to the SWIOTLB. We must only use
  * single-page sg elements on Xen Server.
  */
-#if defined(NV_SG_ALLOC_TABLE_FROM_PAGES_PRESENT) && \
-    !defined(NV_DOM0_KERNEL_PRESENT)
+#if !defined(NV_DOM0_KERNEL_PRESENT)
     #define NV_ALLOC_DMA_SUBMAP_SCATTERLIST(dm, sm, i)                        \
         ((sg_alloc_table_from_pages(&sm->sgt,                                 \
             &dm->pages[NV_DMA_SUBMAP_IDX_TO_PAGE_IDX(i)],                     \
@@ -1383,8 +1402,6 @@ typedef struct nv_dma_map_s {
         ((sg_alloc_table(&sm->sgt, sm->page_count, NV_GFP_KERNEL)) == \
             0 ? NV_OK : NV_ERR_OPERATING_SYSTEM)
 #endif
-
-typedef struct nv_ibmnpu_info nv_ibmnpu_info_t;
 
 typedef struct nv_work_s {
     struct work_struct task;
@@ -1413,34 +1430,6 @@ struct os_wait_queue {
     struct completion q;
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /*
  * To report error in msi/msix when unhandled count reaches a threshold
  */
@@ -1461,21 +1450,41 @@ struct nv_dma_device {
     } addressable_range;
 
     struct device *dev;
-    NvBool nvlink;
 };
 
+/* Properties of the coherent link */
+typedef struct coherent_link_info_s {
+    /* Physical Address of the GPU memory in SOC AMAP. In the case of
+     * baremetal OS environment it is System Physical Address(SPA) and in the case
+     * of virutalized OS environment it is Intermediate Physical Address(IPA) */
+    NvU64 gpu_mem_pa;
 
+    /* Physical address of the reserved portion of the GPU memory, applicable
+     * only in Grace Hopper self hosted passthrough virtualizatioan platform. */
+    NvU64 rsvd_mem_pa;
 
+    /* Bitmap of NUMA node ids, corresponding to the reserved PXMs,
+     * available for adding GPU memory to the kernel as system RAM */
+    DECLARE_BITMAP(free_node_bitmap, MAX_NUMNODES);
+} coherent_link_info_t;
 
-
-
-
-
-
-
-
-
-
+#if defined(NV_LINUX_ACPI_EVENTS_SUPPORTED)
+/*
+ * acpi data storage structure
+ *
+ * This structure retains the pointer to the device,
+ * and any other baggage we want to carry along
+ *
+ */
+typedef struct
+{
+    nvidia_stack_t *sp;
+    struct acpi_device *device;
+    struct acpi_handle *handle;
+    void *notifier_data;
+    int notify_handler_installed;
+} nv_acpi_t;
+#endif
 
 /* linux-specific version of old nv_state_t */
 /* this is a general os-specific state structure. the first element *must* be
@@ -1489,13 +1498,12 @@ typedef struct nv_linux_state_s {
     struct device  *dev;
     struct pci_dev *pci_dev;
 
-    /* IBM-NPU info associated with this GPU */
-    nv_ibmnpu_info_t *npu;
+    /* coherent link information */
+     coherent_link_info_t coherent_link_info;
 
-
-
-
-
+    /* Dedicated queue to be used for removing FB memory which is onlined
+     * to kernel as a NUMA node. Refer Bug : 3879845*/
+    nv_kthread_q_t remove_numa_memory_q;
 
     /* NUMA node information for the platforms where GPU memory is presented
      * as a NUMA node to the kernel */
@@ -1507,6 +1515,7 @@ typedef struct nv_linux_state_s {
         /* NUMA online/offline status for platforms that support GPU memory as
          * NUMA node */
         atomic_t status;
+        NvBool use_auto_online;
     } numa_info;
 
     nvidia_stack_t *sp[NV_DEV_STACK_COUNT];
@@ -1576,25 +1585,13 @@ typedef struct nv_linux_state_s {
     /* Per-device notifier block for ACPI events */
     struct notifier_block acpi_nb;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+#if defined(NV_LINUX_ACPI_EVENTS_SUPPORTED)
+    nv_acpi_t* nv_acpi_object;
+#endif
 
     /* Lock serializing ISRs for different SOC vectors */
     nv_spinlock_t soc_isr_lock;
+    void *soc_bh_mutex;
 
     struct nv_timer snapshot_timer;
     nv_spinlock_t snapshot_timer_lock;
@@ -1610,6 +1607,30 @@ typedef struct nv_linux_state_s {
 
     struct nv_dma_device dma_dev;
     struct nv_dma_device niso_dma_dev;
+
+    /*
+     * Background kthread for handling deferred open operations
+     * (e.g. from O_NONBLOCK).
+     *
+     * Adding to open_q and reading/writing is_accepting_opens
+     * are protected by nvl->open_q_lock (not nvl->ldata_lock).
+     * This allows new deferred open operations to be enqueued without
+     * blocking behind previous ones (which hold nvl->ldata_lock).
+     *
+     * Adding to open_q is only safe if is_accepting_opens is true.
+     * This prevents open operations from racing with device removal.
+     *
+     * Stopping open_q is only safe after setting is_accepting_opens to false.
+     * This ensures that the open_q (and the larger nvl structure) will
+     * outlive any of the open operations enqueued.
+     */
+    nv_kthread_q_t open_q;
+    NvBool is_accepting_opens;
+    struct semaphore open_q_lock;
+#if defined(NV_VGPU_KVM_BUILD)
+    wait_queue_head_t wait;
+    NvS32 return_status;
+#endif
 } nv_linux_state_t;
 
 extern nv_linux_state_t *nv_linux_devices;
@@ -1640,24 +1661,6 @@ extern struct rw_semaphore nv_system_pm_lock;
 
 extern NvBool nv_ats_supported;
 
-#if defined(NV_LINUX_ACPI_EVENTS_SUPPORTED)
-/*
- * acpi data storage structure
- *
- * This structure retains the pointer to the device,
- * and any other baggage we want to carry along
- *
- */
-typedef struct
-{
-    nvidia_stack_t *sp;
-    struct acpi_device *device;
-    struct acpi_handle *handle;
-    int notify_handler_installed;
-} nv_acpi_t;
-
-#endif
-
 /*
  * file-private data
  * hide a pointer to our data structures in a file-private ptr
@@ -1671,22 +1674,13 @@ typedef struct nvidia_event
     nv_event_t event;
 } nvidia_event_t;
 
-typedef enum
-{
-    NV_FOPS_STACK_INDEX_MMAP,
-    NV_FOPS_STACK_INDEX_IOCTL,
-    NV_FOPS_STACK_INDEX_COUNT
-} nvidia_entry_point_index_t;
-
 typedef struct
 {
     nv_file_private_t nvfp;
 
     nvidia_stack_t *sp;
-    nvidia_stack_t *fops_sp[NV_FOPS_STACK_INDEX_COUNT];
-    struct semaphore fops_sp_lock[NV_FOPS_STACK_INDEX_COUNT];
     nv_alloc_t *free_list;
-    void *nvptr;
+    nv_linux_state_t *nvptr;
     nvidia_event_t *event_data_head, *event_data_tail;
     NvBool dataless_event_pending;
     nv_spinlock_t fp_lock;
@@ -1697,12 +1691,33 @@ typedef struct
     nv_alloc_mapping_context_t mmap_context;
     struct address_space mapping;
 
+    nv_kthread_q_item_t open_q_item;
+    struct completion open_complete;
+    nv_linux_state_t *deferred_open_nvl;
+    int open_rc;
+    NV_STATUS adapter_status;
+
     struct list_head entry;
 } nv_linux_file_private_t;
 
 static inline nv_linux_file_private_t *nv_get_nvlfp_from_nvfp(nv_file_private_t *nvfp)
 {
     return container_of(nvfp, nv_linux_file_private_t, nvfp);
+}
+
+static inline int nv_wait_open_complete_interruptible(nv_linux_file_private_t *nvlfp)
+{
+    return wait_for_completion_interruptible(&nvlfp->open_complete);
+}
+
+static inline void nv_wait_open_complete(nv_linux_file_private_t *nvlfp)
+{
+    wait_for_completion(&nvlfp->open_complete);
+}
+
+static inline NvBool nv_is_open_complete(nv_linux_file_private_t *nvlfp)
+{
+    return completion_done(&nvlfp->open_complete);
 }
 
 #define NV_SET_FILE_PRIVATE(filep,data) ((filep)->private_data = (data))
@@ -1713,7 +1728,6 @@ static inline nv_linux_file_private_t *nv_get_nvlfp_from_nvfp(nv_file_private_t 
 #define NV_GET_NVL_FROM_NV_STATE(nv)    ((nv_linux_state_t *)nv->os_state)
 
 #define NV_STATE_PTR(nvl)   &(((nv_linux_state_t *)(nvl))->nv_state)
-
 
 #define NV_ATOMIC_READ(data)            atomic_read(&(data))
 #define NV_ATOMIC_SET(data,val)         atomic_set(&(data), (val))
@@ -1760,11 +1774,9 @@ static inline struct kmem_cache *nv_kmem_cache_create(const char *name, unsigned
     return cache;
 }
 
-
 #if defined(CONFIG_PCI_IOV)
 #define NV_PCI_SRIOV_SUPPORT
 #endif /* CONFIG_PCI_IOV */
-
 
 #define NV_PCIE_CFG_MAX_OFFSET 0x1000
 
@@ -1788,32 +1800,25 @@ static inline NV_STATUS nv_check_gpu_state(nv_state_t *nv)
 
 extern NvU32 NVreg_EnableUserNUMAManagement;
 extern NvU32 NVreg_RegisterPCIDriver;
+extern NvU32 NVreg_EnableResizableBar;
+extern NvU32 NVreg_EnableNonblockingOpen;
 
 extern NvU32 num_probed_nv_devices;
 extern NvU32 num_nv_devices;
 
 #define NV_FILE_INODE(file) (file)->f_inode
 
-#if defined(NV_DOM0_KERNEL_PRESENT) || defined(NV_VGPU_KVM_BUILD)
+static inline int nv_is_control_device(struct inode *inode)
+{
+    return (minor((inode)->i_rdev) == NV_MINOR_DEVICE_NUMBER_CONTROL_DEVICE);
+}
+
+#if defined(NV_DOM0_KERNEL_PRESENT) || defined(NV_VGPU_KVM_BUILD) || defined(NV_DEVICE_VM_BUILD)
 #define NV_VGX_HYPER
 #if defined(NV_XEN_IOEMU_INJECT_MSI)
 #include <xen/ioemu.h>
 #endif
 #endif
-
-static inline NvU64 nv_pci_bus_address(struct pci_dev *dev, NvU8 bar_index)
-{
-    NvU64 bus_addr = 0;
-#if defined(NV_PCI_BUS_ADDRESS_PRESENT)
-    bus_addr = pci_bus_address(dev, bar_index);
-#elif defined(CONFIG_PCI)
-    struct pci_bus_region region;
-
-    pcibios_resource_to_bus(dev, &region, &dev->resource[bar_index]);
-    bus_addr = region.start;
-#endif
-    return bus_addr;
-}
 
 /*
  * Decrements the usage count of the allocation, and moves the allocation to
@@ -1844,59 +1849,6 @@ static inline NvBool nv_alloc_release(nv_linux_file_private_t *nvlfp, nv_alloc_t
 #if !defined(RB_EMPTY_ROOT)
 #define RB_EMPTY_ROOT(root) ((root)->rb_node == NULL)
 #endif
-
-/*
- * Starting on Power9 systems, DMA addresses for NVLink are no longer
- * the same as used over PCIe.
- *
- * Power9 supports a 56-bit Real Address. This address range is compressed
- * when accessed over NVLink to allow the GPU to access all of memory using
- * its 47-bit Physical address.
- *
- * If there is an NPU device present on the system, it implies that NVLink
- * sysmem links are present and we need to apply the required address
- * conversion for NVLink within the driver.
- *
- * See Bug 1920398 for further background and details.
- *
- * Note, a deviation from the documented compression scheme is that the
- * upper address bits (i.e. bit 56-63) instead of being set to zero are
- * preserved during NVLink address compression so the orignal PCIe DMA
- * address can be reconstructed on expansion. These bits can be safely
- * ignored on NVLink since they are truncated by the GPU.
- *
- * Bug 1968345: As a performance enhancement it is the responsibility of
- * the caller on PowerPC platforms to check for presence of an NPU device
- * before the address transformation is applied.
- */
-static inline NvU64 nv_compress_nvlink_addr(NvU64 addr)
-{
-    NvU64 addr47 = addr;
-
-#if defined(NVCPU_PPC64LE)
-    addr47 = addr & ((1ULL << 43) - 1);
-    addr47 |= (addr & (0x3ULL << 45)) >> 2;
-    WARN_ON(addr47 & (1ULL << 44));
-    addr47 |= (addr & (0x3ULL << 49)) >> 4;
-    addr47 |= addr & ~((1ULL << 56) - 1);
-#endif
-
-    return addr47;
-}
-
-static inline NvU64 nv_expand_nvlink_addr(NvU64 addr47)
-{
-    NvU64 addr = addr47;
-
-#if defined(NVCPU_PPC64LE)
-    addr = addr47 & ((1ULL << 43) - 1);
-    addr |= (addr47 & (3ULL << 43)) << 2;
-    addr |= (addr47 & (3ULL << 45)) << 4;
-    addr |= addr47 & ~((1ULL << 56) - 1);
-#endif
-
-    return addr;
-}
 
 // Default flags for ISRs
 static inline NvU32 nv_default_irq_flags(nv_state_t *nv)
@@ -1944,25 +1896,12 @@ static inline NvU32 nv_default_irq_flags(nv_state_t *nv)
     #define NV_GET_UNUSED_FD_FLAGS(flags)  (-1)
 #endif
 
-#if defined(NV_SET_CLOSE_ON_EXEC_PRESENT)
-    #define NV_SET_CLOSE_ON_EXEC(fd, fdt) __set_close_on_exec(fd, fdt)
-#elif defined(NV_LINUX_TIME_H_PRESENT) && defined(FD_SET)
-    #define NV_SET_CLOSE_ON_EXEC(fd, fdt) FD_SET(fd, fdt->close_on_exec)
-#else
-    #define NV_SET_CLOSE_ON_EXEC(fd, fdt) __set_bit(fd, fdt->close_on_exec)
-#endif
-
 #define MODULE_BASE_NAME "nvidia"
 #define MODULE_INSTANCE_NUMBER 0
 #define MODULE_INSTANCE_STRING ""
 #define MODULE_NAME MODULE_BASE_NAME MODULE_INSTANCE_STRING
 
-NvS32 nv_request_soc_irq(nv_linux_state_t *, NvU32, nv_soc_irq_type_t, NvU32, NvU32);
-
-
-
-
-
+NvS32 nv_request_soc_irq(nv_linux_state_t *, NvU32, nv_soc_irq_type_t, NvU32, NvU32, const char*);
 
 static inline void nv_mutex_destroy(struct mutex *lock)
 {
@@ -1993,6 +1932,11 @@ static inline int nv_set_numa_status(nv_linux_state_t *nvl, int status)
 
     NV_ATOMIC_SET(nvl->numa_info.status, status);
     return 0;
+}
+
+static inline NvBool nv_platform_use_auto_online(nv_linux_state_t *nvl)
+{
+    return nvl->numa_info.use_auto_online;
 }
 
 typedef enum
@@ -2054,5 +1998,8 @@ typedef enum
 #if defined(NV_LINUX_CLK_PROVIDER_H_PRESENT)
 #include <linux/clk-provider.h>
 #endif
+
+#define NV_EXPORT_SYMBOL(symbol)        EXPORT_SYMBOL_GPL(symbol)
+#define NV_CHECK_EXPORT_SYMBOL(symbol)  NV_IS_EXPORT_SYMBOL_PRESENT_##symbol
 
 #endif  /* _NV_LINUX_H_ */

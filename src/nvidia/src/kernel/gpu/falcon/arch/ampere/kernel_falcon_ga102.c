@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -42,7 +42,7 @@
  * Function to check if RISCV is active
  */
 NvBool
-kflcnIsRiscvActive_GA10X
+kflcnIsRiscvActive_GA102
 (
     OBJGPU *pGpu,
     KernelFalcon *pKernelFlcn
@@ -51,6 +51,46 @@ kflcnIsRiscvActive_GA10X
     NvU32 val = kflcnRiscvRegRead_HAL(pGpu, pKernelFlcn, NV_PRISCV_RISCV_CPUCTL);
 
     return FLD_TEST_DRF(_PRISCV, _RISCV_CPUCTL, _ACTIVE_STAT, _ACTIVE, val);
+}
+
+/*!
+ * Returns true if the RISC-V core is selected
+ */
+NvBool
+kflcnIsRiscvSelected_GA102
+(
+    OBJGPU *pGpu,
+    KernelFalcon *pKernelFalcon
+)
+{
+    const NvU32 privErrVal = 0xbadf0000;
+    const NvU32 privErrMask = 0xffff0000;
+    NvU32 val = kflcnRiscvRegRead_HAL(pGpu, pKernelFalcon, NV_PRISCV_RISCV_BCR_CTRL);
+
+    //
+    // If NV_PRISCV_RISCV_BCR_CTRL is locked out from reads (e.g., by PLM), assume the RISC-V core
+    // is in use. Nearly all ucodes set the RISCV_BCR PLM to allow RO for all sources.
+    //
+    return (FLD_TEST_DRF(_PRISCV, _RISCV_BCR_CTRL, _CORE_SELECT, _RISCV, val) ||
+            ((val & privErrMask) == privErrVal));
+}
+
+/*!
+ * Reset falcon using secure reset, ready to run riscv.
+ */
+NV_STATUS
+kflcnResetIntoRiscv_GA102
+(
+    OBJGPU *pGpu,
+    KernelFalcon *pKernelFlcn
+)
+{
+    NV_ASSERT_OK_OR_RETURN(kflcnPreResetWait_HAL(pGpu, pKernelFlcn));
+    NV_ASSERT_OK(kflcnResetHw(pGpu, pKernelFlcn));
+    NV_ASSERT_OK_OR_RETURN(kflcnWaitForResetToFinish_HAL(pGpu, pKernelFlcn));
+    kflcnRiscvProgramBcr_HAL(pGpu, pKernelFlcn, NV_TRUE);
+    kflcnSetRiscvMode(pKernelFlcn, NV_TRUE);
+    return NV_OK;
 }
 
 /*!
@@ -81,7 +121,7 @@ kflcnRiscvProgramBcr_GA102
  * Switch the core to FALCON.  Releases priv lockdown.
  * Should not be called while in reset.  See bug 200586493.
  */
-void kflcnSwitchToFalcon_GA10X
+void kflcnSwitchToFalcon_GA102
 (
     OBJGPU *pGpu,
     KernelFalcon *pKernelFlcn
@@ -126,6 +166,10 @@ void kflcnSwitchToFalcon_GA10X
     {
         NV_ASSERT_OK_FAILED("Failed to switch core to Falcon mode", status);
     }
+    else
+    {
+        kflcnSetRiscvMode(pKernelFlcn, NV_FALSE);
+    }
 }
 
 /*!
@@ -135,7 +179,7 @@ void kflcnSwitchToFalcon_GA10X
  * Bug 3419321: This sometimes may not get set by HW, so use time out.
  */
 NV_STATUS
-kflcnPreResetWait_GA10X
+kflcnPreResetWait_GA102
 (
     OBJGPU *pGpu,
     KernelFalcon *pKernelFlcn
@@ -143,7 +187,9 @@ kflcnPreResetWait_GA10X
 {
     NvU32 hwcfg2;
     RMTIMEOUT timeout;
-    NvU32 flags = GPU_TIMEOUT_FLAGS_DEFAULT | GPU_TIMEOUT_FLAGS_BYPASS_JOURNAL_LOG;
+    NvU32 flags = (GPU_TIMEOUT_FLAGS_TMR |
+                   GPU_TIMEOUT_FLAGS_BYPASS_THREAD_STATE |
+                   GPU_TIMEOUT_FLAGS_BYPASS_JOURNAL_LOG);
 
     if (!IS_SILICON(pGpu) && !IS_EMULATION(pGpu))
     {
@@ -217,21 +263,58 @@ kflcnWaitForResetToFinish_GA102(OBJGPU *pGpu, KernelFalcon *pKernelFlcn)
 }
 
 /*!
- * Read the IRQ status of the RISCV Falcon.
+ * Wait for RISC-V to halt.
+ *
+ * @param[in]  pGpu           OBJGPU pointer
+ * @param[in]  pKernelFlcn    KernelFalcon pointer
+ * @param[in]  timeoutUs      Timeout value
+ *
+ * @returns NV_ERR_TIMEOUT if RISC-V fails to halt.
+ */
+NV_STATUS
+kflcnWaitForHaltRiscv_GA102
+(
+    OBJGPU *pGpu,
+    KernelFalcon *pKernelFlcn,
+    NvU32 timeoutUs,
+    NvU32 flags
+)
+{
+    NV_STATUS status = NV_OK;
+    RMTIMEOUT timeout;
+
+    gpuSetTimeout(pGpu, timeoutUs, &timeout, flags);
+
+    while (!FLD_TEST_DRF_NUM(_PRISCV, _RISCV, _CPUCTL_HALTED, 0x1,
+                             kflcnRiscvRegRead_HAL(pGpu, pKernelFlcn, NV_PRISCV_RISCV_CPUCTL)))
+    {
+        status = gpuCheckTimeout(pGpu, &timeout);
+        if (status == NV_ERR_TIMEOUT)
+        {
+            NV_PRINTF(LEVEL_ERROR, "Timeout waiting for RISC-V to halt\n");
+            DBG_BREAKPOINT();
+            break;
+        }
+        osSpinLoop();
+    }
+
+    return status;
+}
+
+/*!
+ * Read the IRQ status of the Falcon in RISC-V mode.
  *
  * @return IRQ status mask
  */
 NvU32
-kflcnReadIntrStatus_GA102
+kflcnRiscvReadIntrStatus_GA102
 (
     OBJGPU *pGpu,
     KernelFalcon *pKernelFlcn
 )
 {
-    return ((kflcnRegRead_HAL(pGpu, pKernelFlcn, NV_PFALCON_FALCON_IRQSTAT) &
-             kflcnRegRead_HAL(pGpu, pKernelFlcn, NV_PFALCON_FALCON_IRQMASK) &
-             kflcnRegRead_HAL(pGpu, pKernelFlcn, NV_PFALCON_FALCON_IRQDEST)) |
-            (kflcnRegRead_HAL(pGpu, pKernelFlcn, NV_PFALCON_FALCON_IRQSTAT) &
-             kflcnRiscvRegRead_HAL(pGpu, pKernelFlcn, NV_PRISCV_RISCV_IRQMASK) &
-             kflcnRiscvRegRead_HAL(pGpu, pKernelFlcn, NV_PRISCV_RISCV_IRQDEST)));
+    return (kflcnRegRead_HAL(pGpu, pKernelFlcn, NV_PFALCON_FALCON_IRQSTAT) &
+            kflcnRiscvRegRead_HAL(pGpu, pKernelFlcn, NV_PRISCV_RISCV_IRQMASK) &
+            kflcnRiscvRegRead_HAL(pGpu, pKernelFlcn, NV_PRISCV_RISCV_IRQDEST));
 }
+

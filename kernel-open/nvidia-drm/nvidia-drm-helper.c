@@ -28,6 +28,8 @@
  */
 
 #include "nvidia-drm-helper.h"
+#include "nvidia-drm-priv.h"
+#include "nvidia-drm-crtc.h"
 
 #include "nvmisc.h"
 
@@ -43,8 +45,7 @@
 
 /*
  * The inclusion of drm_framebuffer.h was removed from drm_crtc.h by commit
- * 720cf96d8fecde29b72e1101f8a567a0ce99594f ("drm: Drop drm_framebuffer.h from
- * drm_crtc.h") in linux-next, expected in v5.19-rc7.
+ * 720cf96d8fec ("drm: Drop drm_framebuffer.h from drm_crtc.h") in v6.0.
  *
  * We only need drm_framebuffer.h for drm_framebuffer_put(), and it is always
  * present (v4.9+) when drm_framebuffer_{put,get}() is present (v4.12+), so it
@@ -147,6 +148,18 @@ int nv_drm_atomic_helper_disable_all(struct drm_device *dev,
         if (ret < 0)
             goto free;
     }
+
+#if defined(NV_DRM_ROTATION_AVAILABLE)
+    nv_drm_for_each_plane(plane, dev) {
+        plane_state = drm_atomic_get_plane_state(state, plane);
+        if (IS_ERR(plane_state)) {
+            ret = PTR_ERR(plane_state);
+            goto free;
+        }
+
+        plane_state->rotation = DRM_MODE_ROTATE_0;
+    }
+#endif
 
     nv_drm_for_each_connector_in_state(state, conn, conn_state, i) {
         ret = drm_atomic_set_crtc_for_connector(conn_state, NULL);

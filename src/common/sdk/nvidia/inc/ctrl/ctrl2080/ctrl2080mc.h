@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2014-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2014-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -27,12 +27,11 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrl2080/ctrl2080mc.finn
+// Source file:      ctrl/ctrl2080/ctrl2080mc.finn
 //
 
-
-
 #include "ctrl/ctrl2080/ctrl2080base.h"
+#include "nvcfg_sdk.h"
 
 /* NV20_SUBDEVICE_XX mc control commands and parameters */
 
@@ -78,10 +77,17 @@ typedef struct NV2080_CTRL_MC_GET_ARCH_INFO_PARAMS {
 
 #define NV2080_CTRL_MC_ARCH_INFO_ARCHITECTURE_TU100         (0x00000160)
 #define NV2080_CTRL_MC_ARCH_INFO_ARCHITECTURE_GA100         (0x00000170)
+#define NV2080_CTRL_MC_ARCH_INFO_ARCHITECTURE_GH100         (0x00000180)
+#define NV2080_CTRL_MC_ARCH_INFO_ARCHITECTURE_AD100         (0x00000190)
+#define NV2080_CTRL_MC_ARCH_INFO_ARCHITECTURE_GB100         (0x000001A0)
+
+#define NV2080_CTRL_MC_ARCH_INFO_ARCHITECTURE_GB200         (0x000001B0)
 
 
 
 /* valid ARCHITECTURE_T23X implementation values */
+
+
 #define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_T234        (0x00000004)
 #define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_T234D       (0x00000005)
 
@@ -107,6 +113,35 @@ typedef struct NV2080_CTRL_MC_GET_ARCH_INFO_PARAMS {
 #define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GA106       (0x00000006)
 #define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GA107       (0x00000007)
 #define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GA10B       (0x0000000B)
+
+
+/* valid ARCHITECTURE_GH10x implementation values */
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GH100       (0x00000000)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GH100_SOC   (0x00000001)
+
+/* valid ARCHITECTURE_AD10x implementation values */
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_AD100       (0x00000000)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_AD000       (0x00000001)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_AD101       (0x00000001)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_AD102       (0x00000002)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_AD103       (0x00000003)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_AD104       (0x00000004)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_AD106       (0x00000006)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_AD107       (0x00000007)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_AD10B       (0x0000000B)
+/* valid ARCHITECTURE_GB10x implementation values */
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GB100       (0x00000000)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GB102       (0x00000002)
+
+
+/* valid ARCHITECTURE_GB20x implementation values */
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GB200       (0x00000000)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GB202       (0x00000002)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GB203       (0x00000003)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GB204       (0x00000004)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GB205       (0x00000005)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GB206       (0x00000006)
+#define NV2080_CTRL_MC_ARCH_INFO_IMPLEMENTATION_GB207       (0x00000007)
 
 
 
@@ -163,52 +198,6 @@ typedef struct NV2080_CTRL_MC_SERVICE_INTERRUPTS_PARAMS {
 typedef struct NV2080_CTRL_MC_GET_MANUFACTURER_PARAMS {
     NvU32 manufacturer;
 } NV2080_CTRL_MC_GET_MANUFACTURER_PARAMS;
-
-
-
-/*
- * NV2080_CTRL_CMD_MC_QUERY_HOSTCLK_SLOWDOWN_STATUS
- *
- * This command is used to allow clients to query whether hostclk slowdown is
- * disabled.
- *
- *  bDisabled
- *    This parameter will hold the status of hostclk slowdown
- *
- * Possible status values returned are:
- *   NV_OK
- *
- */
-#define NV2080_CTRL_CMD_MC_QUERY_HOSTCLK_SLOWDOWN_STATUS              (0x20801708) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_MC_INTERFACE_ID << 8) | NV2080_CTRL_MC_QUERY_HOSTCLK_SLOWDOWN_STATUS_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_MC_QUERY_HOSTCLK_SLOWDOWN_STATUS_PARAMS_MESSAGE_ID (0x8U)
-
-typedef struct NV2080_CTRL_MC_QUERY_HOSTCLK_SLOWDOWN_STATUS_PARAMS {
-    NvBool bDisabled;
-} NV2080_CTRL_MC_QUERY_HOSTCLK_SLOWDOWN_STATUS_PARAMS;
-
-/*
- * NV2080_CTRL_CMD_MC_SET_HOSTCLK_SLOWDOWN_STATUS
- *
- * This command is used to allow clients to disable/enable hostclk slowdown.
- *
- *  bDisable
- *    When this parameter is set to TRUE, RM should disable hostclk slowdown.
- *    If it is set to FALSE, RM will attempt to enable hostclk slowdown, but
- *    in this case, slowdown is NOT guaranteed to be enabled since there may
- *    be other reason (like regkey) preventing slowdown.
- *
- * Possible status values returned are:
- *   NV_OK
- *
- */
-#define NV2080_CTRL_CMD_MC_SET_HOSTCLK_SLOWDOWN_STATUS (0x20801709) /* finn: Evaluated from "(FINN_NV20_SUBDEVICE_0_MC_INTERFACE_ID << 8) | NV2080_CTRL_MC_SET_HOSTCLK_SLOWDOWN_STATUS_PARAMS_MESSAGE_ID" */
-
-#define NV2080_CTRL_MC_SET_HOSTCLK_SLOWDOWN_STATUS_PARAMS_MESSAGE_ID (0x9U)
-
-typedef struct NV2080_CTRL_MC_SET_HOSTCLK_SLOWDOWN_STATUS_PARAMS {
-    NvBool bDisable;
-} NV2080_CTRL_MC_SET_HOSTCLK_SLOWDOWN_STATUS_PARAMS;
 
 
 

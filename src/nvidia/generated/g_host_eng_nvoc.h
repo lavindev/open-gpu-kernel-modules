@@ -1,13 +1,20 @@
+
 #ifndef _G_HOST_ENG_NVOC_H_
 #define _G_HOST_ENG_NVOC_H_
 #include "nvoc/runtime.h"
+
+// Version of generated metadata structures
+#ifdef NVOC_METADATA_VERSION
+#undef NVOC_METADATA_VERSION
+#endif
+#define NVOC_METADATA_VERSION 1
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2013-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2013-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -29,6 +36,7 @@ extern "C" {
  * DEALINGS IN THE SOFTWARE.
  */
 
+#pragma once
 #include "g_host_eng_nvoc.h"
 
 #ifndef HOST_ENG_H
@@ -44,22 +52,38 @@ extern "C" {
 
 #include "kernel/gpu/fifo/kernel_channel.h"
 
-typedef struct OBJHOSTENG *POBJHOSTENG;
-
 /*!
  * Interface class for all Hosteng modules.
  */
+
+// Private field names are wrapped in PRIVATE_FIELD, which does nothing for
+// the matching C source file, but causes diagnostics to be issued if another
+// source file references the field.
 #ifdef NVOC_HOST_ENG_H_PRIVATE_ACCESS_ALLOWED
 #define PRIVATE_FIELD(x) x
 #else
 #define PRIVATE_FIELD(x) NVOC_PRIVATE_FIELD(x)
 #endif
+
+
+// Metadata including vtable
+struct NVOC_VTABLE__OBJHOSTENG;
+
+
 struct OBJHOSTENG {
+
+    // Metadata
     const struct NVOC_RTTI *__nvoc_rtti;
-    struct OBJHOSTENG *__nvoc_pbase_OBJHOSTENG;
-    NV_STATUS (*__hostengHaltEngine__)(struct OBJGPU *, struct OBJHOSTENG *);
-    NV_STATUS (*__hostengHaltAndReset__)(struct OBJGPU *, struct OBJHOSTENG *, RMTIMEOUT *);
-    NV_STATUS (*__hostengReset__)(struct OBJGPU *, struct OBJHOSTENG *, NvBool, struct KernelChannel *, struct KernelChannel **);
+    const struct NVOC_VTABLE__OBJHOSTENG *__nvoc_vtable;
+
+    // Ancestor object pointers for `staticCast` feature
+    struct OBJHOSTENG *__nvoc_pbase_OBJHOSTENG;    // hosteng
+};
+
+
+// Metadata including vtable with 1 function pointer
+struct NVOC_VTABLE__OBJHOSTENG {
+    NV_STATUS (*__hostengHaltAndReset__)(struct OBJGPU *, struct OBJHOSTENG * /*this*/, RMTIMEOUT *);  // virtual
 };
 
 #ifndef __NVOC_CLASS_OBJHOSTENG_TYPEDEF__
@@ -71,6 +95,7 @@ typedef struct OBJHOSTENG OBJHOSTENG;
 #define __nvoc_class_id_OBJHOSTENG 0xb356e7
 #endif /* __nvoc_class_id_OBJHOSTENG */
 
+// Casting support
 extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJHOSTENG;
 
 #define __staticCast_OBJHOSTENG(pThis) \
@@ -83,33 +108,23 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJHOSTENG;
     ((OBJHOSTENG*)__nvoc_dynamicCast(staticCast((pThis), Dynamic), classInfo(OBJHOSTENG)))
 #endif //__nvoc_host_eng_h_disabled
 
-
 NV_STATUS __nvoc_objCreateDynamic_OBJHOSTENG(OBJHOSTENG**, Dynamic*, NvU32, va_list);
 
 NV_STATUS __nvoc_objCreate_OBJHOSTENG(OBJHOSTENG**, Dynamic*, NvU32);
 #define __objCreate_OBJHOSTENG(ppNewObj, pParent, createFlags) \
     __nvoc_objCreate_OBJHOSTENG((ppNewObj), staticCast((pParent), Dynamic), (createFlags))
 
-#define hostengHaltEngine(pGpu, pHosteng) hostengHaltEngine_DISPATCH(pGpu, pHosteng)
-#define hostengHaltAndReset(pGpu, pHosteng, pRmTimeout) hostengHaltAndReset_DISPATCH(pGpu, pHosteng, pRmTimeout)
-#define hostengReset(pGpu, pHosteng, bReload, pKernelChannel, ppCurrentKernelChannel) hostengReset_DISPATCH(pGpu, pHosteng, bReload, pKernelChannel, ppCurrentKernelChannel)
-NV_STATUS hostengHaltEngine_IMPL(struct OBJGPU *pGpu, struct OBJHOSTENG *pHosteng);
 
-static inline NV_STATUS hostengHaltEngine_DISPATCH(struct OBJGPU *pGpu, struct OBJHOSTENG *pHosteng) {
-    return pHosteng->__hostengHaltEngine__(pGpu, pHosteng);
+// Wrapper macros
+#define hostengHaltAndReset_FNPTR(pHosteng) pHosteng->__nvoc_vtable->__hostengHaltAndReset__
+#define hostengHaltAndReset(pGpu, pHosteng, pRmTimeout) hostengHaltAndReset_DISPATCH(pGpu, pHosteng, pRmTimeout)
+
+// Dispatch functions
+static inline NV_STATUS hostengHaltAndReset_DISPATCH(struct OBJGPU *pGpu, struct OBJHOSTENG *pHosteng, RMTIMEOUT *pRmTimeout) {
+    return pHosteng->__nvoc_vtable->__hostengHaltAndReset__(pGpu, pHosteng, pRmTimeout);
 }
 
 NV_STATUS hostengHaltAndReset_IMPL(struct OBJGPU *pGpu, struct OBJHOSTENG *pHosteng, RMTIMEOUT *pRmTimeout);
-
-static inline NV_STATUS hostengHaltAndReset_DISPATCH(struct OBJGPU *pGpu, struct OBJHOSTENG *pHosteng, RMTIMEOUT *pRmTimeout) {
-    return pHosteng->__hostengHaltAndReset__(pGpu, pHosteng, pRmTimeout);
-}
-
-NV_STATUS hostengReset_IMPL(struct OBJGPU *pGpu, struct OBJHOSTENG *pHosteng, NvBool bReload, struct KernelChannel *pKernelChannel, struct KernelChannel **ppCurrentKernelChannel);
-
-static inline NV_STATUS hostengReset_DISPATCH(struct OBJGPU *pGpu, struct OBJHOSTENG *pHosteng, NvBool bReload, struct KernelChannel *pKernelChannel, struct KernelChannel **ppCurrentKernelChannel) {
-    return pHosteng->__hostengReset__(pGpu, pHosteng, bReload, pKernelChannel, ppCurrentKernelChannel);
-}
 
 #undef PRIVATE_FIELD
 
@@ -119,4 +134,5 @@ static inline NV_STATUS hostengReset_DISPATCH(struct OBJGPU *pGpu, struct OBJHOS
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
 #endif // _G_HOST_ENG_NVOC_H_

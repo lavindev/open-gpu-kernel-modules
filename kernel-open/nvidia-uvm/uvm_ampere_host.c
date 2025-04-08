@@ -1,5 +1,5 @@
 /*******************************************************************************
-    Copyright (c) 2018-2021 NVIDIA Corporation
+    Copyright (c) 2018-2024 NVIDIA Corporation
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to
@@ -29,12 +29,14 @@
 #include "clc56f.h"
 #include "clc076.h"
 
-bool uvm_hal_ampere_host_method_validate(uvm_push_t *push, NvU32 method_address, NvU32 method_data)
+bool uvm_hal_ampere_host_method_is_valid(uvm_push_t *push, NvU32 method_address, NvU32 method_data)
 {
     uvm_gpu_t *gpu = uvm_push_get_gpu(push);
 
-    if (!uvm_gpu_is_virt_mode_sriov_heavy(gpu))
+    if (!uvm_parent_gpu_is_virt_mode_sriov_heavy(gpu->parent))
         return true;
+
+    UVM_ASSERT(push->channel);
 
     if (uvm_channel_is_privileged(push->channel)) {
         switch (method_address) {
@@ -82,8 +84,10 @@ bool uvm_hal_ampere_host_method_validate(uvm_push_t *push, NvU32 method_address,
    return true;
 }
 
-bool uvm_hal_ampere_host_sw_method_validate(uvm_push_t *push, NvU32 method_address, NvU32 method_data)
+bool uvm_hal_ampere_host_sw_method_is_valid(uvm_push_t *push, NvU32 method_address, NvU32 method_data)
 {
+    UVM_ASSERT(push->channel);
+
     if (!uvm_channel_is_proxy(push->channel))
         return true;
 
@@ -107,6 +111,8 @@ void uvm_hal_ampere_host_clear_faulted_channel_register(uvm_user_channel_t *user
     uvm_spin_loop_t spin;
     NvU32 channel_faulted_mask = 0;
     NvU32 clear_type_value = 0;
+    NvU32 doorbell_value = 0;
+    volatile NvU32 *doorbell_ptr;
 
     UVM_ASSERT(!user_channel->gpu->parent->has_clear_faulted_channel_method);
 
@@ -123,6 +129,12 @@ void uvm_hal_ampere_host_clear_faulted_channel_register(uvm_user_channel_t *user
                        uvm_mmu_engine_type_string(fault->fault_source.mmu_engine_type));
     }
 
+    doorbell_ptr = (NvU32 *)((NvU8 *)user_channel->runlist_pri_base_register + NV_RUNLIST_INTERNAL_DOORBELL);
+
+    // GFID is not required since we clear faulted channel with a SW method on
+    // SRIOV. On baremetal, GFID is always zero.
+    doorbell_value = HWVALUE(_RUNLIST, INTERNAL_DOORBELL, CHID, user_channel->hw_channel_id);
+
     // Wait for the channel to have the FAULTED bit set as this can race with
     // interrupt notification
     UVM_SPIN_WHILE(!(UVM_GPU_READ_ONCE(*user_channel->chram_channel_register) & channel_faulted_mask), &spin);
@@ -131,7 +143,7 @@ void uvm_hal_ampere_host_clear_faulted_channel_register(uvm_user_channel_t *user
 
     wmb();
 
-    UVM_GPU_WRITE_ONCE(*user_channel->work_submission_offset, user_channel->work_submission_token);
+    UVM_GPU_WRITE_ONCE(*doorbell_ptr, doorbell_value);
 }
 
 static NvU32 instance_ptr_aperture_type_to_hw_value(uvm_aperture_t aperture)
@@ -197,17 +209,18 @@ void uvm_hal_ampere_host_clear_faulted_channel_sw_method(uvm_push_t *push,
                      CLEAR_FAULTED_B, HWVALUE(C076, CLEAR_FAULTED_B, INST_HI, instance_ptr_hi));
 }
 
-// Copy from Pascal, this version sets TLB_INVALIDATE_INVAL_SCOPE.
+// Copy from Turing, this version sets TLB_INVALIDATE_INVAL_SCOPE.
 void uvm_hal_ampere_host_tlb_invalidate_all(uvm_push_t *push,
-                                            uvm_gpu_phys_address_t pdb,
-                                            NvU32 depth,
-                                            uvm_membar_t membar)
+                                           uvm_gpu_phys_address_t pdb,
+                                           NvU32 depth,
+                                           uvm_membar_t membar)
 {
     NvU32 aperture_value;
     NvU32 page_table_level;
     NvU32 pdb_lo;
     NvU32 pdb_hi;
     NvU32 ack_value = 0;
+    NvU32 sysmembar_value = 0;
 
     UVM_ASSERT_MSG(pdb.aperture == UVM_APERTURE_VID || pdb.aperture == UVM_APERTURE_SYS, "aperture: %u", pdb.aperture);
 
@@ -222,8 +235,8 @@ void uvm_hal_ampere_host_tlb_invalidate_all(uvm_push_t *push,
     pdb_lo = pdb.address & HWMASK(C56F, MEM_OP_C, TLB_INVALIDATE_PDB_ADDR_LO);
     pdb_hi = pdb.address >> HWSIZE(C56F, MEM_OP_C, TLB_INVALIDATE_PDB_ADDR_LO);
 
-    // PDE3 is the highest level on Pascal, see the comment in uvm_pascal_mmu.c
-    // for details.
+    // PDE3 is the highest level on Pascal-Ampere, see the comment in
+    // uvm_pascal_mmu.c for details.
     UVM_ASSERT_MSG(depth < NVC56F_MEM_OP_C_TLB_INVALIDATE_PAGE_TABLE_LEVEL_UP_TO_PDE3, "depth %u", depth);
     page_table_level = NVC56F_MEM_OP_C_TLB_INVALIDATE_PAGE_TABLE_LEVEL_UP_TO_PDE3 - depth;
 
@@ -234,7 +247,12 @@ void uvm_hal_ampere_host_tlb_invalidate_all(uvm_push_t *push,
         ack_value = HWCONST(C56F, MEM_OP_C, TLB_INVALIDATE_ACK_TYPE, GLOBALLY);
     }
 
-    NV_PUSH_4U(C56F, MEM_OP_A, HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_SYSMEMBAR, DIS) |
+    if (membar == UVM_MEMBAR_SYS)
+        sysmembar_value = HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_SYSMEMBAR, EN);
+    else
+        sysmembar_value = HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_SYSMEMBAR, DIS);
+
+    NV_PUSH_4U(C56F, MEM_OP_A, sysmembar_value |
                                HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_INVAL_SCOPE, NON_LINK_TLBS),
                      MEM_OP_B, 0,
                      MEM_OP_C, HWCONST(C56F, MEM_OP_C, TLB_INVALIDATE_PDB, ONE) |
@@ -247,16 +265,18 @@ void uvm_hal_ampere_host_tlb_invalidate_all(uvm_push_t *push,
                      MEM_OP_D, HWCONST(C56F, MEM_OP_D, OPERATION, MMU_TLB_INVALIDATE) |
                                HWVALUE(C56F, MEM_OP_D, TLB_INVALIDATE_PDB_ADDR_HI, pdb_hi));
 
-    uvm_hal_tlb_invalidate_membar(push, membar);
+    // GPU membar still requires an explicit membar method.
+    if (membar == UVM_MEMBAR_GPU)
+        uvm_push_get_gpu(push)->parent->host_hal->membar_gpu(push);
 }
 
-// Copy from Volta, this version sets TLB_INVALIDATE_INVAL_SCOPE.
+// Copy from Turing, this version sets TLB_INVALIDATE_INVAL_SCOPE.
 void uvm_hal_ampere_host_tlb_invalidate_va(uvm_push_t *push,
                                            uvm_gpu_phys_address_t pdb,
                                            NvU32 depth,
                                            NvU64 base,
                                            NvU64 size,
-                                           NvU32 page_size,
+                                           NvU64 page_size,
                                            uvm_membar_t membar)
 {
     NvU32 aperture_value;
@@ -264,6 +284,7 @@ void uvm_hal_ampere_host_tlb_invalidate_va(uvm_push_t *push,
     NvU32 pdb_lo;
     NvU32 pdb_hi;
     NvU32 ack_value = 0;
+    NvU32 sysmembar_value = 0;
     NvU32 va_lo;
     NvU32 va_hi;
     NvU64 end;
@@ -273,9 +294,9 @@ void uvm_hal_ampere_host_tlb_invalidate_va(uvm_push_t *push,
     NvU32 log2_invalidation_size;
     uvm_gpu_t *gpu = uvm_push_get_gpu(push);
 
-    UVM_ASSERT_MSG(IS_ALIGNED(page_size, 1 << 12), "page_size 0x%x\n", page_size);
-    UVM_ASSERT_MSG(IS_ALIGNED(base, page_size), "base 0x%llx page_size 0x%x\n", base, page_size);
-    UVM_ASSERT_MSG(IS_ALIGNED(size, page_size), "size 0x%llx page_size 0x%x\n", size, page_size);
+    UVM_ASSERT_MSG(IS_ALIGNED(page_size, 1 << 12), "page_size 0x%llx\n", page_size);
+    UVM_ASSERT_MSG(IS_ALIGNED(base, page_size), "base 0x%llx page_size 0x%llx\n", base, page_size);
+    UVM_ASSERT_MSG(IS_ALIGNED(size, page_size), "size 0x%llx page_size 0x%llx\n", size, page_size);
     UVM_ASSERT_MSG(size > 0, "size 0x%llx\n", size);
 
     // The invalidation size must be a power-of-two number of pages containing
@@ -317,7 +338,7 @@ void uvm_hal_ampere_host_tlb_invalidate_va(uvm_push_t *push,
     pdb_lo = pdb.address & HWMASK(C56F, MEM_OP_C, TLB_INVALIDATE_PDB_ADDR_LO);
     pdb_hi = pdb.address >> HWSIZE(C56F, MEM_OP_C, TLB_INVALIDATE_PDB_ADDR_LO);
 
-    // PDE3 is the highest level on Pascal-Ampere , see the comment in
+    // PDE3 is the highest level on Pascal-Ampere, see the comment in
     // uvm_pascal_mmu.c for details.
     UVM_ASSERT_MSG(depth < NVC56F_MEM_OP_C_TLB_INVALIDATE_PAGE_TABLE_LEVEL_UP_TO_PDE3, "depth %u", depth);
     page_table_level = NVC56F_MEM_OP_C_TLB_INVALIDATE_PAGE_TABLE_LEVEL_UP_TO_PDE3 - depth;
@@ -329,10 +350,15 @@ void uvm_hal_ampere_host_tlb_invalidate_va(uvm_push_t *push,
         ack_value = HWCONST(C56F, MEM_OP_C, TLB_INVALIDATE_ACK_TYPE, GLOBALLY);
     }
 
+    if (membar == UVM_MEMBAR_SYS)
+        sysmembar_value = HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_SYSMEMBAR, EN);
+    else
+        sysmembar_value = HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_SYSMEMBAR, DIS);
+
     NV_PUSH_4U(C56F, MEM_OP_A, HWVALUE(C56F, MEM_OP_A, TLB_INVALIDATE_INVALIDATION_SIZE, log2_invalidation_size) |
-                               HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_SYSMEMBAR, DIS) |
-                               HWVALUE(C56F, MEM_OP_A, TLB_INVALIDATE_TARGET_ADDR_LO, va_lo) |
-                               HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_INVAL_SCOPE, NON_LINK_TLBS),
+                               HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_INVAL_SCOPE, NON_LINK_TLBS) |
+                               sysmembar_value |
+                               HWVALUE(C56F, MEM_OP_A, TLB_INVALIDATE_TARGET_ADDR_LO, va_lo),
                      MEM_OP_B, HWVALUE(C56F, MEM_OP_B, TLB_INVALIDATE_TARGET_ADDR_HI, va_hi),
                      MEM_OP_C, HWCONST(C56F, MEM_OP_C, TLB_INVALIDATE_PDB, ONE) |
                                HWVALUE(C56F, MEM_OP_C, TLB_INVALIDATE_PDB_ADDR_LO, pdb_lo) |
@@ -344,21 +370,23 @@ void uvm_hal_ampere_host_tlb_invalidate_va(uvm_push_t *push,
                      MEM_OP_D, HWCONST(C56F, MEM_OP_D, OPERATION, MMU_TLB_INVALIDATE_TARGETED) |
                                HWVALUE(C56F, MEM_OP_D, TLB_INVALIDATE_PDB_ADDR_HI, pdb_hi));
 
-    uvm_hal_tlb_invalidate_membar(push, membar);
+    // GPU membar still requires an explicit membar method.
+    if (membar == UVM_MEMBAR_GPU)
+        gpu->parent->host_hal->membar_gpu(push);
 }
 
-// Copy from Pascal, this version sets TLB_INVALIDATE_INVAL_SCOPE.
+// Copy from Turing, this version sets TLB_INVALIDATE_INVAL_SCOPE.
 void uvm_hal_ampere_host_tlb_invalidate_test(uvm_push_t *push,
                                              uvm_gpu_phys_address_t pdb,
                                              UVM_TEST_INVALIDATE_TLB_PARAMS *params)
 {
     NvU32 ack_value = 0;
+    NvU32 sysmembar_value = 0;
     NvU32 invalidate_gpc_value = 0;
     NvU32 aperture_value = 0;
     NvU32 pdb_lo = 0;
     NvU32 pdb_hi = 0;
     NvU32 page_table_level = 0;
-    uvm_membar_t membar;
 
     UVM_ASSERT_MSG(pdb.aperture == UVM_APERTURE_VID || pdb.aperture == UVM_APERTURE_SYS, "aperture: %u", pdb.aperture);
     if (pdb.aperture == UVM_APERTURE_VID)
@@ -373,7 +401,7 @@ void uvm_hal_ampere_host_tlb_invalidate_test(uvm_push_t *push,
     pdb_hi = pdb.address >> HWSIZE(C56F, MEM_OP_C, TLB_INVALIDATE_PDB_ADDR_LO);
 
     if (params->page_table_level != UvmInvalidatePageTableLevelAll) {
-        // PDE3 is the highest level on Pascal, see the comment in
+        // PDE3 is the highest level on Pascal-Ampere, see the comment in
         // uvm_pascal_mmu.c for details.
         page_table_level = min((NvU32)UvmInvalidatePageTableLevelPde3, params->page_table_level) - 1;
     }
@@ -385,6 +413,11 @@ void uvm_hal_ampere_host_tlb_invalidate_test(uvm_push_t *push,
         ack_value = HWCONST(C56F, MEM_OP_C, TLB_INVALIDATE_ACK_TYPE, GLOBALLY);
     }
 
+    if (params->membar == UvmInvalidateTlbMemBarSys)
+        sysmembar_value = HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_SYSMEMBAR, EN);
+    else
+        sysmembar_value = HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_SYSMEMBAR, DIS);
+
     if (params->disable_gpc_invalidate)
         invalidate_gpc_value = HWCONST(C56F, MEM_OP_C, TLB_INVALIDATE_GPC, DISABLE);
     else
@@ -395,9 +428,9 @@ void uvm_hal_ampere_host_tlb_invalidate_test(uvm_push_t *push,
 
         NvU32 va_lo = va & HWMASK(C56F, MEM_OP_A, TLB_INVALIDATE_TARGET_ADDR_LO);
         NvU32 va_hi = va >> HWSIZE(C56F, MEM_OP_A, TLB_INVALIDATE_TARGET_ADDR_LO);
-        NV_PUSH_4U(C56F, MEM_OP_A, HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_SYSMEMBAR, DIS) |
-                                   HWVALUE(C56F, MEM_OP_A, TLB_INVALIDATE_TARGET_ADDR_LO, va_lo) |
-                                   HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_INVAL_SCOPE, NON_LINK_TLBS),
+        NV_PUSH_4U(C56F, MEM_OP_A, sysmembar_value |
+                                   HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_INVAL_SCOPE, NON_LINK_TLBS) |
+                                   HWVALUE(C56F, MEM_OP_A, TLB_INVALIDATE_TARGET_ADDR_LO, va_lo),
                          MEM_OP_B, HWVALUE(C56F, MEM_OP_B, TLB_INVALIDATE_TARGET_ADDR_HI, va_hi),
                          MEM_OP_C, HWCONST(C56F, MEM_OP_C, TLB_INVALIDATE_REPLAY, NONE) |
                                    HWVALUE(C56F, MEM_OP_C, TLB_INVALIDATE_PAGE_TABLE_LEVEL, page_table_level) |
@@ -410,7 +443,7 @@ void uvm_hal_ampere_host_tlb_invalidate_test(uvm_push_t *push,
                                    HWVALUE(C56F, MEM_OP_D, TLB_INVALIDATE_PDB_ADDR_HI, pdb_hi));
     }
     else {
-        NV_PUSH_4U(C56F, MEM_OP_A, HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_SYSMEMBAR, DIS) |
+        NV_PUSH_4U(C56F, MEM_OP_A, sysmembar_value |
                                    HWCONST(C56F, MEM_OP_A, TLB_INVALIDATE_INVAL_SCOPE, NON_LINK_TLBS),
                          MEM_OP_B, 0,
                          MEM_OP_C, HWCONST(C56F, MEM_OP_C, TLB_INVALIDATE_REPLAY, NONE) |
@@ -424,12 +457,7 @@ void uvm_hal_ampere_host_tlb_invalidate_test(uvm_push_t *push,
                                    HWVALUE(C56F, MEM_OP_D, TLB_INVALIDATE_PDB_ADDR_HI, pdb_hi));
     }
 
-    if (params->membar == UvmInvalidateTlbMemBarSys)
-        membar = UVM_MEMBAR_SYS;
-    else if (params->membar == UvmInvalidateTlbMemBarLocal)
-        membar = UVM_MEMBAR_GPU;
-    else
-        membar = UVM_MEMBAR_NONE;
-
-    uvm_hal_tlb_invalidate_membar(push, membar);
+    // GPU membar still requires an explicit membar method.
+    if (params->membar == UvmInvalidateTlbMemBarLocal)
+        uvm_push_get_gpu(push)->parent->host_hal->membar_gpu(push);
 }

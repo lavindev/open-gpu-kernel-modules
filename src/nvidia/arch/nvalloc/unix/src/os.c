@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -29,22 +29,27 @@
 #include <osapi.h>
 #include <ctrl/ctrl0000/ctrl0000gpu.h>
 #include <ctrl/ctrl0000/ctrl0000unix.h>
+#include <nvdevid.h>
 
 #include <nverror.h>
 #include <gpu/device/device.h>
 
 #include "gpu/gpu.h"
-#include <osfuncs.h>
+#include <gpu_mgr/gpu_mgr.h>
 #include <platform/chipset/chipset.h>
 
 #include "nverror.h"
 #include "kernel/gpu/bif/kernel_bif.h"
 
+#include "gpu/mig_mgr/kernel_mig_manager.h"
+
 #include "gpu/mem_sys/kern_mem_sys.h"
 
 #include "mem_mgr/io_vaspace.h"
 #include <diagnostics/journal.h>
+#include "kernel/diagnostics/xid_context.h"
 #include "gpu/mem_mgr/mem_desc.h"
+#include "gpu/mem_mgr/mem_mgr.h"
 #include "core/thread_state.h"
 #include <nvacpitypes.h>
 #include <platform/acpi_common.h>
@@ -58,6 +63,14 @@
 #include "os/dce_rm_client_ipc.h"
 #include "mem_mgr/mem.h"
 #include "gpu/mem_mgr/virt_mem_allocator_common.h"
+
+#include "vgpu/vgpu_util.h"
+
+#include <acpidsmguids.h>
+#include <pex.h>
+#include "gps.h"
+#include "jt.h"
+
 
 
 
@@ -82,12 +95,12 @@ struct OS_RM_CAPS
     nv_cap_t **caps;
 };
 
-NvBool osIsRaisedIRQL()
+NvBool osIsRaisedIRQL(void)
 {
     return (!os_semaphore_may_sleep());
 }
 
-NvBool osIsISR()
+NvBool osIsISR(void)
 {
     return os_is_isr();
 }
@@ -293,7 +306,13 @@ void* osMapKernelSpace(
 
     offset = (Start & ~os_page_mask);
     Start &= os_page_mask;
-    Size = ((Size + offset + ~os_page_mask) & os_page_mask);
+
+    if (!portSafeAddU64(Size, offset, &Size) ||
+        !portSafeAddU64(Size, ~os_page_mask, &Size))
+    {
+        return NULL;
+    }
+    Size &= os_page_mask;
 
     ptr = os_map_kernel_space(Start, Size, Mode);
     if (ptr != NULL)
@@ -322,65 +341,6 @@ void osUnmapKernelSpace(
     os_unmap_kernel_space((void *)ptr, Size);
 }
 
-void* osMapIOSpace(
-    RmPhysAddr Start,
-    NvU64      Size,
-    void **    pData,
-    NvU32      User,
-    NvU32      Mode,
-    NvU32      Protect
-)
-{
-
-    NvU64 offset;
-    NvU8 *addr;
-
-    if (0 == Size)
-    {
-        NV_ASSERT(Size != 0);
-        return NULL;
-    }
-
-    offset = (Start & ~os_page_mask);
-    Start &= os_page_mask;
-    Size = ((Size + offset + ~os_page_mask) & os_page_mask);
-
-    if (User)
-        addr = os_map_user_space(Start, Size, Mode, Protect, pData);
-    else
-        addr = os_map_kernel_space(Start, Size, Mode);
-    if (addr != NULL)
-        return (addr + offset);
-
-    return addr;
-}
-
-void osUnmapIOSpace(
-    void    *pAddress,
-    NvU64    Size,
-    void    *pData,
-    NvU32    User
-)
-{
-    NvU64 offset;
-    NvUPtr addr = (NvUPtr)pAddress;
-
-    if (0 == Size)
-    {
-        NV_ASSERT(Size != 0);
-        return;
-    }
-
-    offset = (addr & ~os_page_mask);
-    addr &= os_page_mask;
-    Size = ((Size + offset + ~os_page_mask) & os_page_mask);
-
-    if (User)
-        os_unmap_user_space((void *)addr, Size, pData);
-    else
-        os_unmap_kernel_space((void *)addr, Size);
-}
-
 static NV_STATUS setNumaPrivData
 (
     KernelMemorySystem      *pKernelMemorySystem,
@@ -388,35 +348,55 @@ static NV_STATUS setNumaPrivData
     MEMORY_DESCRIPTOR       *pMemDesc
 )
 {
-    NV_STATUS rmStatus = NV_OK;
-    void *pAllocPrivate = NULL;
-    NvU64 *addrArray = NULL;
-    NvU64 numOsPages = pMemDesc->PageCount;
+    NV_STATUS   rmStatus      = NV_OK;
+    void       *pAllocPrivate = NULL;
+    NvU64      *addrArray     = NULL;
+    NvU64       numPages      = pMemDesc->PageCount;
+    NvU64       numOsPages    = numPages;
+    RmPhysAddr *pteArray      = memdescGetPteArray(pMemDesc, AT_CPU);
+    NvU64       i;
 
-    addrArray = pMemDesc->_pteArray;
+    addrArray = portMemAllocNonPaged(numPages * sizeof(NvU64));
+    if (addrArray == NULL)
+    {
+        return NV_ERR_NO_MEMORY;
+    }
 
     if (NV_RM_PAGE_SIZE < os_page_size)
     {
-        NvU64 numPages;
-        NvU64 i;
-
-        numPages = pMemDesc->PageCount;
-        addrArray = portMemAllocNonPaged(numPages * sizeof(NvU64));
-        if (addrArray == NULL)
-        {
-            return NV_ERR_NO_MEMORY;
-        }
-
-        portMemCopy((void*)addrArray,
-                    (numPages * sizeof(NvU64)), (void*)pMemDesc->_pteArray,
-                    (numPages * sizeof(NvU64)));
-        RmDeflateRmToOsPageArray(addrArray, numPages);
         numOsPages = NV_RM_PAGES_TO_OS_PAGES(numPages);
+    }
+
+    if (!memdescGetContiguity(pMemDesc, AT_CPU))
+    {
+        portMemCopy((void*)addrArray,
+            (numPages * sizeof(NvU64)),
+            (void*)pteArray,
+            (numPages * sizeof(NvU64)));
+
+        if (NV_RM_PAGE_SIZE < os_page_size)
+        {
+            RmDeflateRmToOsPageArray(addrArray, numPages);
+        }
 
         for (i = 0; i < numOsPages; i++)
         {
             // Update GPA to system physical address
             addrArray[i] += pKernelMemorySystem->coherentCpuFbBase;
+        }
+    }
+    else
+    {
+        //
+        // Original PTE array in contiguous memdesc only holds start address.
+        // We need to fill the OS page array with adjacent page addresses to
+        // map contiguously.
+        //
+        NvU64 offset = pteArray[0] + pKernelMemorySystem->coherentCpuFbBase;
+
+        for (i = 0; i < numOsPages; i++, offset += os_page_size)
+        {
+            addrArray[i] = offset;
         }
     }
 
@@ -429,10 +409,7 @@ static NV_STATUS setNumaPrivData
     memdescSetMemData(pMemDesc, pAllocPrivate, NULL);
 
 errors:
-    if (NV_RM_PAGE_SIZE < os_page_size)
-    {
-        portMemFree(addrArray);
-    }
+    portMemFree(addrArray);
 
     return rmStatus;
 }
@@ -487,6 +464,10 @@ NV_STATUS osMapSystemMemory
 {
     OBJGPU *pGpu = pMemDesc->pGpu;
 
+    NvU64     rootOffset = 0;
+    pMemDesc = memdescGetRootMemDesc(pMemDesc, &rootOffset);
+    Offset  += rootOffset;
+
     RmPhysAddr userAddress;
     nv_state_t *nv = NV_GET_NV_STATE(pGpu);
     NV_STATUS rmStatus = NV_OK;
@@ -494,7 +475,7 @@ NV_STATUS osMapSystemMemory
     void *pAddress;
     void *pPrivate = NULL;
     NvU64 pageIndex;
-    NvU32 pageOffset;
+    NvU32 pageOffset = (Offset & ~os_page_mask);
 
     if (pGpu != NULL &&
         pGpu->getProperty(pGpu, PDB_PROP_GPU_COHERENT_CPU_MAPPING) &&
@@ -505,6 +486,8 @@ NV_STATUS osMapSystemMemory
         rmStatus = setNumaPrivData(pKernelMemorySystem, nv, pMemDesc);
         if (rmStatus != NV_OK)
             return rmStatus;
+
+        pageOffset = memdescGetPhysAddr(pMemDesc, FORCE_VMMU_TRANSLATION(pMemDesc, AT_GPU), Offset) & ~os_page_mask;
     }
 
     *ppAddress = NvP64_NULL;
@@ -516,7 +499,6 @@ NV_STATUS osMapSystemMemory
         return NV_ERR_INVALID_ARGUMENT;
 
     pageIndex = (Offset >> os_page_shift);
-    pageOffset = (Offset & ~os_page_mask);
 
     pAllocPrivate = memdescGetMemData(pMemDesc);
     if (!pAllocPrivate)
@@ -571,9 +553,12 @@ void osUnmapSystemMemory
 )
 {
     NV_STATUS status;
-    void *pAllocPrivate = memdescGetMemData(pMemDesc);
+    void *pAllocPrivate;
     OBJGPU *pGpu = pMemDesc->pGpu;
     nv_state_t *nv = NV_GET_NV_STATE(pGpu);
+
+    pMemDesc = memdescGetRootMemDesc(pMemDesc, NULL);
+    pAllocPrivate = memdescGetMemData(pMemDesc);
 
     if (Kernel)
     {
@@ -633,9 +618,9 @@ NvBool osIsAdministrator(void)
     return os_is_administrator();
 }
 
-NvBool osAllowPriorityOverride(void)
+NvBool osCheckAccess(RsAccessRight accessRight)
 {
-    return os_allow_priority_override();
+    return os_check_access(accessRight);
 }
 
 NvU32 osGetCurrentProcess(void)
@@ -671,6 +656,26 @@ NV_STATUS osGetCurrentThread(OS_THREAD_HANDLE *pThreadId)
     return rmStatus;
 }
 
+void* osGetPidInfo(void)
+{
+    return os_get_pid_info();
+}
+
+void osPutPidInfo(void *pOsPidInfo)
+{
+    os_put_pid_info(pOsPidInfo);
+}
+
+NV_STATUS osFindNsPid(void *pOsPidInfo, NvU32 *pNsPid)
+{
+    return os_find_ns_pid(pOsPidInfo, pNsPid);
+}
+
+NvBool osIsInitNs(void)
+{
+    return os_is_init_ns();
+}
+
 NV_STATUS osAttachToProcess(void** ppProcessInfo, NvU32 ProcessId)
 {
     //
@@ -694,11 +699,6 @@ void osDetachFromProcess(void* pProcessInfo)
     return;
 }
 
-NvBool osDbgBreakpointEnabled(void)
-{
-    return NV_TRUE;
-}
-
 NV_STATUS osAcquireRmSema(void *pSema)
 {
     return NV_OK;
@@ -716,6 +716,12 @@ NvU32 osReleaseRmSema(void *pSema, OBJGPU *pDpcGpu)
 
 void osSpinLoop(void)
 {
+    // Enable this code to get debug prints from Libos.
+}
+
+NvU64 osGetMaxUserVa(void)
+{
+    return os_get_max_user_va();
 }
 
 NV_STATUS osSchedule(void)
@@ -749,15 +755,20 @@ NV_STATUS osQueueWorkItemWithFlags(
         pWi->flags |= OS_QUEUE_WORKITEM_FLAGS_LOCK_SEMA;
     if (flags & OS_QUEUE_WORKITEM_FLAGS_LOCK_API_RW)
         pWi->flags |= OS_QUEUE_WORKITEM_FLAGS_LOCK_API_RW;
-    if (flags & OS_QUEUE_WORKITEM_FLAGS_LOCK_GPUS_RW)
-        pWi->flags |= OS_QUEUE_WORKITEM_FLAGS_LOCK_GPUS_RW;
-    if (flags & OS_QUEUE_WORKITEM_FLAGS_LOCK_GPU_GROUP_DEVICE_RW)
-        pWi->flags |= OS_QUEUE_WORKITEM_FLAGS_LOCK_GPU_GROUP_DEVICE_RW;
-    if (flags & OS_QUEUE_WORKITEM_FLAGS_LOCK_GPU_GROUP_SUBDEVICE_RW)
-        pWi->flags |= OS_QUEUE_WORKITEM_FLAGS_LOCK_GPU_GROUP_SUBDEVICE_RW;
+    if (flags & OS_QUEUE_WORKITEM_FLAGS_LOCK_API_RO)
+        pWi->flags |= OS_QUEUE_WORKITEM_FLAGS_LOCK_API_RO;
+    if (flags & OS_QUEUE_WORKITEM_FLAGS_LOCK_GPUS)
+        pWi->flags |= OS_QUEUE_WORKITEM_FLAGS_LOCK_GPUS;
+    if (flags & OS_QUEUE_WORKITEM_FLAGS_LOCK_GPU_GROUP_DEVICE)
+        pWi->flags |= OS_QUEUE_WORKITEM_FLAGS_LOCK_GPU_GROUP_DEVICE;
+    if (flags & OS_QUEUE_WORKITEM_FLAGS_LOCK_GPU_GROUP_SUBDEVICE)
+        pWi->flags |= OS_QUEUE_WORKITEM_FLAGS_LOCK_GPU_GROUP_SUBDEVICE;
 
     if (flags & OS_QUEUE_WORKITEM_FLAGS_FULL_GPU_SANITY)
         pWi->flags |= OS_QUEUE_WORKITEM_FLAGS_FULL_GPU_SANITY;
+
+    if (flags & OS_QUEUE_WORKITEM_FLAGS_DROP_ON_UNLOAD_QUEUE_FLUSH)
+        pWi->flags |= OS_QUEUE_WORKITEM_FLAGS_DROP_ON_UNLOAD_QUEUE_FLUSH;
 
     pWi->gpuInstance = gpuGetInstance(pGpu);
     pWi->func.pGpuFunction = pFunction;
@@ -772,15 +783,6 @@ NV_STATUS osQueueWorkItemWithFlags(
     }
 
     return status;
-}
-
-NV_STATUS osQueueWorkItem(
-    OBJGPU *pGpu,
-    OSWorkItemFunction pFunction,
-    void *pParams
-)
-{
-    return osQueueWorkItemWithFlags(pGpu, pFunction, pParams, OS_QUEUE_WORKITEM_FLAGS_NONE);
 }
 
 NV_STATUS osQueueSystemWorkItem(
@@ -819,6 +821,25 @@ void osQueueMMUFaultHandler(OBJGPU *pGpu)
     nv_schedule_uvm_isr(nv);
 }
 
+NvBool osGpuSupportsAts(OBJGPU *pGpu)
+{
+    nv_state_t *nv = NV_GET_NV_STATE(pGpu);
+
+    // Checks ATS support from both OS side and RM side.
+    return nv->ats_support && 
+        pGpu->getProperty(pGpu, PDB_PROP_GPU_ATS_SUPPORTED);
+}
+
+NV_STATUS osQueueDrainP2PHandler(NvU8 *pUuid)
+{
+    return nv_schedule_uvm_drain_p2p(pUuid);
+}
+
+void osQueueResumeP2PHandler(NvU8 *pUuid)
+{
+    nv_schedule_uvm_resume_p2p(pUuid);
+}
+
 static inline nv_dma_device_t* osGetDmaDeviceForMemDesc(
     OS_GPU_INFO *pOsGpuInfo,
     MEMORY_DESCRIPTOR *pMemDesc
@@ -827,32 +848,6 @@ static inline nv_dma_device_t* osGetDmaDeviceForMemDesc(
     return (pOsGpuInfo->niso_dma_dev != NULL) &&
            memdescGetFlag(pMemDesc, MEMDESC_FLAGS_MEMORY_TYPE_DISPLAY_NISO) ?
            pOsGpuInfo->niso_dma_dev : pOsGpuInfo->dma_dev;
-}
-
-NV_STATUS osDmaMapPages(
-    OS_GPU_INFO       *pOsGpuInfo,
-    MEMORY_DESCRIPTOR *pMemDesc
-)
-{
-    return nv_dma_map_pages(
-        osGetDmaDeviceForMemDesc(pOsGpuInfo, pMemDesc),
-        NV_RM_PAGES_TO_OS_PAGES(pMemDesc->PageCount),
-        memdescGetPteArray(pMemDesc, AT_CPU),
-        memdescGetContiguity(pMemDesc, AT_CPU),
-        memdescGetCpuCacheAttrib(pMemDesc),
-        NULL);
-}
-
-NV_STATUS osDmaUnmapPages(
-    OS_GPU_INFO       *pOsGpuInfo,
-    MEMORY_DESCRIPTOR *pMemDesc
-)
-{
-    return nv_dma_unmap_pages(
-        pOsGpuInfo->dma_dev,
-        NV_RM_PAGES_TO_OS_PAGES(pMemDesc->PageCount),
-        memdescGetPteArray(pMemDesc, AT_CPU),
-        NULL);
 }
 
 //
@@ -875,33 +870,57 @@ NV_STATUS osAllocPagesInternal(
     MEMORY_DESCRIPTOR *pMemDesc
 )
 {
-    OBJSYS    *pSys = SYS_GET_INSTANCE();
-    OBJGPU *pGpu = pMemDesc->pGpu;
-    nv_state_t *nv = NV_GET_NV_STATE(pGpu);
-    void *pMemData;
-    NV_STATUS status;
+    OBJSYS           *pSys      = SYS_GET_INSTANCE();
+    OBJGPU           *pGpu      = pMemDesc->pGpu;
+    nv_state_t       *nv        = NV_GET_NV_STATE(pGpu);
+    void             *pMemData  = NULL;
+    NV_STATUS         status;
+    NvS32             nodeId    = NV0000_CTRL_NO_NUMA_NODE;
+    NV_ADDRESS_SPACE  addrSpace = memdescGetAddressSpace(pMemDesc);
+    NvU64             pageSize  = osGetPageSize();
+    NvU64             osPageCount = NV_ALIGN_UP(pMemDesc->Size, pageSize) >> BIT_IDX_32(pageSize); // TODO: Switch out for macro before submission.
+    NvU64             rmPageCount = NV_ALIGN_UP(pMemDesc->Size, RM_PAGE_SIZE) >> RM_PAGE_SHIFT;
 
     memdescSetAddress(pMemDesc, NvP64_NULL);
     memdescSetMemData(pMemDesc, NULL, NULL);
 
-    NV_ASSERT_OR_RETURN(pMemDesc->PageCount > 0, NV_ERR_INVALID_ARGUMENT);
-
-    if (memdescGetFlag(pMemDesc, MEMDESC_FLAGS_GUEST_ALLOCATED))
+    // In the non-contig case need to protect against page array overflows.
+    if (!memdescGetContiguity(pMemDesc, AT_CPU))
     {
+        NV_ASSERT_OR_RETURN(rmPageCount <= pMemDesc->pageArraySize, NV_ERR_INVALID_ARGUMENT);
+    }
+
+    //
+    // For carveout, the memory is already reserved so we don't have
+    // to allocate memory.
+    //
+    if (memdescGetFlag(pMemDesc, MEMDESC_FLAGS_ALLOC_FROM_SCANOUT_CARVEOUT) ||
+        memdescGetFlag(pMemDesc, MEMDESC_FLAGS_GUEST_ALLOCATED))
+    {
+        // We only support scanout carveout with contiguous memory.
+        if (memdescGetFlag(pMemDesc, MEMDESC_FLAGS_ALLOC_FROM_SCANOUT_CARVEOUT) &&
+            !memdescGetContiguity(pMemDesc, AT_CPU))
+        {
+            status = NV_ERR_NOT_SUPPORTED;
+            goto done;
+        }
+
         if (NV_RM_PAGE_SIZE < os_page_size &&
             !memdescGetContiguity(pMemDesc, AT_CPU))
         {
             RmDeflateRmToOsPageArray(memdescGetPteArray(pMemDesc, AT_CPU),
-                                     pMemDesc->PageCount);
+                                     rmPageCount);
         }
 
         status = nv_alias_pages(
             NV_GET_NV_STATE(pGpu),
-            NV_RM_PAGES_TO_OS_PAGES(pMemDesc->PageCount),
+            osPageCount,
+            pageSize,
             memdescGetContiguity(pMemDesc, AT_CPU),
             memdescGetCpuCacheAttrib(pMemDesc),
             memdescGetGuestId(pMemDesc),
             memdescGetPteArray(pMemDesc, AT_CPU),
+            memdescGetFlag(pMemDesc, MEMDESC_FLAGS_ALLOC_FROM_SCANOUT_CARVEOUT),
             &pMemData);
     }
     else
@@ -911,19 +930,67 @@ NV_STATUS osAllocPagesInternal(
         if (nv && (memdescGetFlag(pMemDesc, MEMDESC_FLAGS_ALLOC_32BIT_ADDRESSABLE)))
             nv->force_dma32_alloc = NV_TRUE;
 
+        //
+        // If AMD SEV is enabled but APM(Ampere protected) or CC(Confidential
+        // Compute) mode is not enabled on the GPU, all RM and client
+        // allocations must be an unprotected sysmem.  If APM is enabled and RM
+        // is allocating sysmem for its internal use, then it has to be
+        // unprotected as protected sysmem is not accessible to GPU.
+        //
+        unencrypted = memdescGetFlag(pMemDesc, MEMDESC_FLAGS_ALLOC_IN_UNPROTECTED_MEMORY);
+
+        if (addrSpace == ADDR_SYSMEM)
+        {
+            nodeId = memdescGetNumaNode(pMemDesc);
+        }
+        else if (addrSpace == ADDR_EGM)
+        {
+            nodeId = GPU_GET_MEMORY_MANAGER(pGpu)->localEgmNodeId;
+        }
+
+
+        if (osPageCount > NV_U32_MAX || rmPageCount > NV_U32_MAX)
+        {
+            status = NV_ERR_INVALID_LIMIT;
+            goto done;
+        }
+
+        //
+        // Bug 4270864: Only non-contig EGM memory needs to specify order. Contig memory
+        // calculates it within nv_alloc_pages. The long term goal is to expand the ability
+        // to request large page size for all of sysmem.
+        //
+        if (memdescIsEgm(pMemDesc) && !memdescGetContiguity(pMemDesc, AT_CPU))
+        {
+            pageSize = memdescGetPageSize(pMemDesc, AT_GPU);
+        }
+
         status = nv_alloc_pages(
             NV_GET_NV_STATE(pGpu),
-            NV_RM_PAGES_TO_OS_PAGES(pMemDesc->PageCount),
+            osPageCount,  // TODO: This call needs to receive the page count param at the requested page size.
+            pageSize,
             memdescGetContiguity(pMemDesc, AT_CPU),
             memdescGetCpuCacheAttrib(pMemDesc),
             pSys->getProperty(pSys,
                 PDB_PROP_SYS_INITIALIZE_SYSTEM_MEMORY_ALLOCATIONS),
             unencrypted,
+            nodeId,
             memdescGetPteArray(pMemDesc, AT_CPU),
             &pMemData);
 
         if (nv && nv->force_dma32_alloc)
             nv->force_dma32_alloc = NV_FALSE;
+    }
+
+    if (status != NV_OK)
+    {
+        goto done;
+    }
+
+    // Guest allocated memory is already initialized
+    if (!memdescGetFlag(pMemDesc, MEMDESC_FLAGS_GUEST_ALLOCATED))
+    {
+        NV_ASSERT_OK_OR_RETURN(memdescSetAllocSizeFields(pMemDesc, rmPageCount * RM_PAGE_SIZE, RM_PAGE_SIZE));
     }
 
     //
@@ -939,6 +1006,9 @@ NV_STATUS osAllocPagesInternal(
 
     memdescSetMemData(pMemDesc, pMemData, NULL);
 
+    if ((pGpu != NULL) && IS_VIRTUAL(pGpu))
+        NV_ASSERT_OK_OR_RETURN(vgpuUpdateGuestSysmemPfnBitMap(pGpu, pMemDesc, NV_TRUE));
+done:
     return status;
 }
 
@@ -948,6 +1018,9 @@ void osFreePagesInternal(
 {
     OBJGPU *pGpu = pMemDesc->pGpu;
     NV_STATUS rmStatus;
+
+    if ((pGpu != NULL) && IS_VIRTUAL(pGpu))
+        NV_ASSERT_OR_RETURN_VOID(vgpuUpdateGuestSysmemPfnBitMap(pGpu, pMemDesc, NV_FALSE) == NV_OK);
 
     if (NV_RM_PAGE_SIZE < os_page_size &&
         !memdescGetContiguity(pMemDesc, AT_CPU))
@@ -982,6 +1055,84 @@ NV_STATUS osUnlockMem(
     return NV_ERR_NOT_SUPPORTED;
 }
 
+NV_STATUS osMapPciMemoryAreaUser
+(
+    OS_GPU_INFO *pOsGpuInfo,
+    MemoryArea memArea,
+    NvU32 protect,
+    NvU32 mode,
+    NvP64 *pVirtualAddress,
+    NvP64 *pPriv
+)
+{
+    NV_STATUS status = NV_OK;
+    NvU64 origStart;
+    NvU64 origSize;
+    NvU64 diffStart;
+
+    if (memArea.numRanges == 0)
+    {
+        *pVirtualAddress = (NvP64) NULL;
+        *pPriv = NULL;
+        return NV_OK;
+    }
+
+    // Fix alignment insofar as we can (middle blocks can't be force-aligned this way)
+    origStart = memArea.pRanges[0].start;
+    memArea.pRanges[0].start = NV_ALIGN_DOWN64(origStart, os_page_size);
+    diffStart = origStart - memArea.pRanges[0].start;
+    memArea.pRanges[0].size += diffStart;
+    origSize = memArea.pRanges[memArea.numRanges - 1llu].size;
+    memArea.pRanges[memArea.numRanges - 1llu].size = NV_ALIGN_UP64(origSize, os_page_size);
+
+    {
+        nv_usermap_access_params_t **ppNvuap, tNvuap;
+        NvU64 totalRangeSize = sizeof(MemoryRange) * memArea.numRanges;
+
+        portMemSet(&tNvuap, 0, sizeof(nv_usermap_access_params_t));
+
+        tNvuap.memArea = memArea;
+        // access_size is only for caching, we can use os_page_size for now until linux has been properly plumbed
+        tNvuap.access_start = memArea.pRanges[0].start;
+        tNvuap.access_size = os_page_size;
+
+        tNvuap.caching = mode;
+        tNvuap.remap_prot_extra = 0;
+        tNvuap.contig = NV_TRUE;
+
+        NV_ASSERT_OK_OR_RETURN(nv_get_usermap_access_params(pOsGpuInfo, &tNvuap));
+
+        ppNvuap = (nv_usermap_access_params_t **) tlsEntryAcquire(TLS_ENTRY_ID_MAPPING_CONTEXT);
+        NV_ASSERT_OR_RETURN(ppNvuap != NULL, NV_ERR_INVALID_STATE);
+
+        NV_ASSERT_OK_OR_GOTO(status,
+            os_alloc_mem((void**) ppNvuap, sizeof(nv_alloc_mapping_context_t)),
+            free_tls);
+
+        portMemCopy(*ppNvuap, sizeof(nv_usermap_access_params_t),
+            &tNvuap, sizeof(nv_usermap_access_params_t));
+
+        NV_ASSERT_OK_OR_GOTO(status, 
+            os_alloc_mem((void**) &((*ppNvuap)->memArea.pRanges), totalRangeSize),
+            free_nvuap);
+
+        portMemCopy((*ppNvuap)->memArea.pRanges, totalRangeSize, memArea.pRanges, totalRangeSize);
+
+        *pVirtualAddress = (NvP64) (memArea.pRanges[0].start + diffStart);
+        goto unalign_and_return;
+
+free_nvuap:
+        os_free_mem(*ppNvuap);
+free_tls:
+        tlsEntryRelease(TLS_ENTRY_ID_MAPPING_CONTEXT);
+    }
+unalign_and_return:
+    memArea.pRanges[memArea.numRanges - 1llu].size =  origSize;
+    memArea.pRanges[0].size -= diffStart;
+    memArea.pRanges[0].start = origStart;
+    return status;
+}
+
 NV_STATUS osMapPciMemoryUser(
     OS_GPU_INFO *pOsGpuInfo,
     RmPhysAddr   busAddress,
@@ -992,15 +1143,16 @@ NV_STATUS osMapPciMemoryUser(
     NvU32        modeFlag
 )
 {
-    void *addr;
-    void *priv = NULL;
+    MemoryArea memArea;
+    MemoryRange memRange;
 
-    addr = osMapIOSpace(busAddress, length, &priv, NV_TRUE, modeFlag, Protect);
+    memArea.numRanges = 1;
+    memArea.pRanges = &memRange;
 
-    *pPriv = NV_PTR_TO_NvP64(priv);
-    *pVirtualAddress = NV_PTR_TO_NvP64(addr);
+    memRange.start = busAddress;
+    memRange.size = length;
 
-    return (addr != NULL) ? NV_OK : NV_ERR_GENERIC;
+    return osMapPciMemoryAreaUser(pOsGpuInfo, memArea, Protect, modeFlag, pVirtualAddress, pPriv);
 }
 
 void osUnmapPciMemoryUser(
@@ -1010,12 +1162,6 @@ void osUnmapPciMemoryUser(
     NvP64        pPriv
 )
 {
-    void *addr, *priv;
-
-    addr = NvP64_VALUE(virtualAddress);
-    priv = NvP64_VALUE(pPriv);
-
-    osUnmapIOSpace(addr, length, priv, NV_TRUE);
 }
 
 NV_STATUS osMapPciMemoryKernelOld
@@ -1187,14 +1333,6 @@ void osUnmapGPU(
     }
 }
 
-NV_STATUS osDeviceClassToDeviceName(
-    NvU32 deviceInstance,
-    NvU8 *szName
-)
-{
-    return NV_ERR_GENERIC;
-}
-
 static void postEvent(
     nv_event_t *event,
     NvU32 hEvent,
@@ -1204,12 +1342,11 @@ static void postEvent(
     NvBool dataValid
 )
 {
-    nv_state_t *nv = nv_get_ctl_state();
-    portSyncSpinlockAcquire(nv->event_spinlock);
-    if (event->active)
-        nv_post_event(event, hEvent, notifyIndex,
-                      info32, info16, dataValid);
-    portSyncSpinlockRelease(nv->event_spinlock);
+    if (osReferenceObjectCount(event) != NV_OK)
+        return;
+    nv_post_event(event, hEvent, notifyIndex,
+                  info32, info16, dataValid);
+    osDereferenceObjectCount(event);
 }
 
 NvU32 osSetEvent
@@ -1428,6 +1565,12 @@ NV_STATUS osReferenceObjectCount(void *pEvent)
     nv_event_t *event = pEvent;
 
     portSyncSpinlockAcquire(nv->event_spinlock);
+    // If event->active is false, don't allow any more reference
+    if (!event->active)
+    {
+        portSyncSpinlockRelease(nv->event_spinlock);
+        return NV_ERR_INVALID_EVENT;
+    }
     ++event->refcount;
     portSyncSpinlockRelease(nv->event_spinlock);
     return NV_OK;
@@ -1440,11 +1583,10 @@ NV_STATUS osDereferenceObjectCount(void *pOSEvent)
 
     portSyncSpinlockAcquire(nv->event_spinlock);
     NV_ASSERT(event->refcount > 0);
-    --event->refcount;
     // If event->refcount == 0 but event->active is true, the client
     // has not yet freed the OS event.  free_os_event will free its
     // memory when they do, or else when the client itself is freed.
-    if (event->refcount == 0 && !event->active)
+    if (--event->refcount == 0 && !event->active)
         portMemFree(event);
     portSyncSpinlockRelease(nv->event_spinlock);
 
@@ -1520,7 +1662,7 @@ void osFlushGpuCoherentCpuCacheRange
     nv_flush_coherent_cpu_cache_range(pOsGpuInfo, cpuVirtual, size);
 }
 
-void osErrorLogV(OBJGPU *pGpu, NvU32 num, const char * pFormat, va_list arglist)
+void osErrorLogV(OBJGPU *pGpu, XidContext context, const char * pFormat, va_list arglist)
 {
     NV_STATUS        rmStatus;
     nv_state_t      *nv             = NV_GET_NV_STATE(pGpu);
@@ -1530,7 +1672,7 @@ void osErrorLogV(OBJGPU *pGpu, NvU32 num, const char * pFormat, va_list arglist)
         return;
     }
 
-    rmStatus = nv_log_error(nv, num, pFormat, arglist);
+    rmStatus = nv_log_error(nv, context.xid, pFormat, arglist);
     NV_ASSERT(rmStatus == NV_OK);
 }
 
@@ -1538,7 +1680,7 @@ void osErrorLog(OBJGPU *pGpu, NvU32 num, const char* pFormat, ...)
 {
     va_list arglist;
     va_start(arglist, pFormat);
-    osErrorLogV(pGpu, num, pFormat, arglist);
+    osErrorLogV(pGpu, (XidContext){.xid = num}, pFormat, arglist);
     va_end(arglist);
 }
 
@@ -1592,6 +1734,7 @@ void osDevWriteReg032(
 {
     NvBool vgpuHandled = NV_FALSE;
 
+    vgpuDevWriteReg032(pGpu, thisAddress, thisValue, &vgpuHandled);
     if (vgpuHandled)
     {
         return;
@@ -1651,6 +1794,7 @@ NvU32 osDevReadReg032(
     NvU32 retval = 0;
     NvBool vgpuHandled = NV_FALSE;
 
+    retval = vgpuDevReadReg032(pGpu, thisAddress, &vgpuHandled);
     if (vgpuHandled)
     {
         return retval;
@@ -1760,7 +1904,7 @@ NV_STATUS osPackageRegistry(
     return RmPackageRegistry(nv, pRegTable, pSize);
 }
 
-NvU32 osGetCpuCount()
+NvU32 osGetCpuCount(void)
 {
     return os_get_cpu_count();   // Total number of logical CPUs.
 }
@@ -1777,6 +1921,29 @@ void osGetTimeoutParams(OBJGPU *pGpu, NvU32 *pTimeoutUs, NvU32 *pScale, NvU32 *p
     NV_ASSERT((NV_GPU_MODE_GRAPHICS_MODE == gpuMode) ||
               (NV_GPU_MODE_COMPUTE_MODE  == gpuMode));
 
+    if (hypervisorIsVgxHyper())
+    {
+        if (IS_GSP_CLIENT(pGpu) && pGpu->getProperty(pGpu, PDB_PROP_GPU_EXTENDED_GSP_RM_INITIALIZATION_TIMEOUT_FOR_VGX) &&
+            !pGpu->gspRmInitialized)
+        {
+            //
+            // For Hopper, 1.8 seconds is not enough to boot GSP-RM.
+            // To avoid this issue, 4 seconds timeout is set on initialization,
+            // and then it's going to be changed 1.8 seconds after GSP initialization.
+            //
+            *pTimeoutUs = 4 * 1000000;
+        }
+        else
+        {
+            //
+            // 1.8 seconds is chosen because it is 90% of the overall hard limit of 2.0
+            // seconds, imposed by WDDM driver rules.
+            // Currently primary use case of VGX is Windows, so setting 1.8 as default
+            //
+            *pTimeoutUs = 1.8 * 1000000;
+        }
+    }
+    else
     {
         switch (gpuMode)
         {
@@ -1802,7 +1969,7 @@ void osGetTimeoutParams(OBJGPU *pGpu, NvU32 *pTimeoutUs, NvU32 *pScale, NvU32 *p
     return;
 }
 
-void osFlushLog()
+void osFlushLog(void)
 {
     // Not implemented
 }
@@ -1935,22 +2102,44 @@ _initializeExportObjectFd
     NV_STATUS      status;
     RsResourceRef *pResourceRef;
     Device        *pDevice;
+    NvU32          deviceInstance = NV_MAX_DEVICES;
+    NvU32          gpuInstanceId = NV_U32_MAX;
 
     if (nvfp->handles != NULL)
     {
         return NV_ERR_STATE_IN_USE;
     }
 
-    status = serverutilGetResourceRef(hClient, hDevice, &pResourceRef);
-    if (status != NV_OK)
+    if (hDevice != 0)
     {
-        return status;
-    }
+        OBJGPU *pGpu;
+        MIG_INSTANCE_REF ref;
 
-    pDevice = dynamicCast(pResourceRef->pResource, Device);
-    if (pDevice == NULL)
-    {
-        return NV_ERR_INVALID_PARAMETER;
+        status = serverutilGetResourceRef(hClient, hDevice, &pResourceRef);
+        if (status != NV_OK)
+        {
+            return status;
+        }
+
+        pDevice = dynamicCast(pResourceRef->pResource, Device);
+        if (pDevice == NULL)
+        {
+            return NV_ERR_INVALID_PARAMETER;
+        }
+
+        deviceInstance = pDevice->deviceInst;
+        pGpu = GPU_RES_GET_GPU(pDevice);
+
+        if (IS_MIG_IN_USE(pGpu))
+        {
+            KernelMIGManager *pKernelMIGManager = GPU_GET_KERNEL_MIG_MANAGER(pGpu);
+            status = kmigmgrGetInstanceRefFromDevice(pGpu, pKernelMIGManager,
+                                                     pDevice, &ref);
+            if (status == NV_OK)
+            {
+                gpuInstanceId = ref.pKernelMIGGpuInstance->swizzId;
+            }
+        }
     }
 
     NV_ASSERT_OK_OR_RETURN(os_alloc_mem((void **)&nvfp->handles,
@@ -1959,8 +2148,9 @@ _initializeExportObjectFd
     os_mem_set(nvfp->handles, 0,
                sizeof(nvfp->handles[0]) * maxObjects);
 
-    nvfp->maxHandles     = maxObjects;
-    nvfp->deviceInstance = pDevice->deviceInst;
+    nvfp->maxHandles        = maxObjects;
+    nvfp->deviceInstance    = deviceInstance;
+    nvfp->gpuInstanceId     = gpuInstanceId;
 
     if (metadata != NULL)
     {
@@ -2393,6 +2583,8 @@ cliresCtrlCmdOsUnixGetExportObjectInfo_IMPL
 
     pParams->maxObjects = nvfp->maxHandles;
     pParams->deviceInstance = nvfp->deviceInstance;
+    pParams->gpuInstanceId = nvfp->gpuInstanceId;
+
     os_mem_copy(pParams->metadata, nvfp->metadata, sizeof(nvfp->metadata));
 
 done:
@@ -2426,7 +2618,135 @@ NV_STATUS osCallACPI_DSM
     NvU16             *pSize
 )
 {
-    return NV_ERR_NOT_SUPPORTED;
+    NV_STATUS   status;
+    NvU8       *pAcpiDsmGuid = NULL;
+    NvU32       acpiDsmRev;
+    nv_state_t *nv  = NV_GET_NV_STATE(pGpu);
+    nv_priv_t  *nvp = NV_GET_NV_PRIV(nv);
+    NvU16       acpiDsmInArgSize = 4;
+    NvBool      acpiNvpcfDsmFunction = NV_FALSE;
+
+    // do any handling/remapping of guid needed.
+    status = checkDsmCall(pGpu,
+                          (ACPI_DSM_FUNCTION *) &acpiDsmFunction,
+                          &acpiDsmSubFunction,
+                          pInOut,
+                          pSize);
+
+    // return if subfunction is not supported or we're returning cache data
+    if (status != NV_WARN_MORE_PROCESSING_REQUIRED)
+    {
+        return status;
+    }
+
+    switch ((NvU32) acpiDsmFunction)
+    {
+        case ACPI_DSM_FUNCTION_NBSI:
+            pAcpiDsmGuid = (NvU8 *) &NBSI_DSM_GUID;
+            acpiDsmRev  = NBSI_REVISION_ID;
+            break;
+        case ACPI_DSM_FUNCTION_NVHG:
+            pAcpiDsmGuid = (NvU8 *) &NVHG_DSM_GUID;
+            acpiDsmRev  = NVHG_REVISION_ID;
+            break;
+        case ACPI_DSM_FUNCTION_MXM:
+            pAcpiDsmGuid = (NvU8 *) &DSM_MXM_GUID;
+            acpiDsmRev  = ACPI_MXM_REVISION_ID;
+            break;
+        case ACPI_DSM_FUNCTION_NBCI:
+            pAcpiDsmGuid = (NvU8 *) &NBCI_DSM_GUID;
+            acpiDsmRev  = NBCI_REVISION_ID;
+            break;
+        case ACPI_DSM_FUNCTION_NVOP:
+            pAcpiDsmGuid = (NvU8 *) &NVOP_DSM_GUID;
+            acpiDsmRev  = NVOP_REVISION_ID;
+            break;
+        case ACPI_DSM_FUNCTION_PCFG:
+            pAcpiDsmGuid = (NvU8 *) &PCFG_DSM_GUID;
+            acpiDsmRev  = PCFG_REVISION_ID;
+            break;
+        case ACPI_DSM_FUNCTION_GPS_2X:
+            pAcpiDsmGuid = (NvU8 *) &GPS_DSM_GUID;
+            acpiDsmRev = GPS_2X_REVISION_ID;
+            acpiDsmInArgSize = (*pSize);
+            break;
+        case ACPI_DSM_FUNCTION_GPS:
+            if ((IsTU10X(pGpu)) ||
+                ((gpuIsACPIPatchRequiredForBug2473619_HAL(pGpu)) &&
+                 ((acpiDsmSubFunction == GPS_FUNC_SUPPORT) ||
+                  (acpiDsmSubFunction == GPS_FUNC_GETCALLBACKS))))
+            {
+                pAcpiDsmGuid = (NvU8 *) &GPS_DSM_GUID;
+                acpiDsmRev = GPS_REVISION_ID;
+                acpiDsmInArgSize = (*pSize);
+            }
+            else
+            {
+                return NV_ERR_NOT_SUPPORTED;
+            }
+            break;
+        case ACPI_DSM_FUNCTION_PEX:
+            pAcpiDsmGuid = (NvU8 *) &PEX_DSM_GUID;
+            acpiDsmRev   = PEX_REVISION_ID;
+            if (acpiDsmSubFunction == PEX_FUNC_SETLTRLATENCY)
+            {
+                acpiDsmInArgSize = (3 + *pSize);
+            }
+            break;
+        case (ACPI_DSM_FUNCTION_JT):
+            pAcpiDsmGuid = (NvU8 *) &JT_DSM_GUID;
+            acpiDsmRev = JT_REVISION_ID;
+            break;
+        case ACPI_DSM_FUNCTION_NVPCF:
+            {
+                pAcpiDsmGuid = (NvU8 *)&NVPCF_ACPI_DSM_GUID;
+                acpiDsmRev = NVPCF_ACPI_DSM_REVISION_ID;
+                acpiDsmInArgSize = (*pSize);
+                acpiNvpcfDsmFunction = NV_TRUE;
+                break;
+            }
+        case ACPI_DSM_FUNCTION_NVPCF_2X:
+            pAcpiDsmGuid = (NvU8 *)&NVPCF_ACPI_DSM_GUID;
+            acpiDsmRev = NVPCF_2X_ACPI_DSM_REVISION_ID;
+            acpiDsmInArgSize = (*pSize);
+            if (!nv->nvpcf_dsm_in_gpu_scope)
+            {
+                acpiNvpcfDsmFunction = NV_TRUE;
+            }
+            break;
+
+        default:
+            return NV_ERR_NOT_SUPPORTED;
+            break;
+    }
+
+    status = nv_acpi_dsm_method(nv,
+                                pAcpiDsmGuid,
+                                acpiDsmRev,
+                                acpiNvpcfDsmFunction,
+                                acpiDsmSubFunction,
+                                pInOut,
+                                acpiDsmInArgSize,
+                                NULL,
+                                pInOut,
+                                pSize);
+
+    if (status == NV_OK)
+    {
+        if (acpiDsmSubFunction == NV_ACPI_ALL_FUNC_SUPPORT)
+        {
+            // if handling get supported functions list... cache it for later calls
+            cacheDsmSupportedFunction(pGpu, acpiDsmFunction, acpiDsmSubFunction, pInOut, *pSize);
+        }
+    }
+    else if (nvp->b_mobile_config_enabled)
+    {
+        NV_PRINTF(LEVEL_ERROR,
+                  "osCallACPI_DSM: Error during 0x%x DSM subfunction 0x%x! status=0x%x\n",
+                  acpiDsmFunction, acpiDsmSubFunction, status);
+    }
+
+    return status;
 }
 
 NV_STATUS osCallACPI_DOD
@@ -2510,9 +2830,10 @@ NV_STATUS  osCallACPI_NVHG_ROM
 void osInitSystemStaticConfig(SYS_STATIC_CONFIG *pConfig)
 {
     pConfig->bIsNotebook = rm_is_system_notebook();
-    pConfig->osType = nv_get_os_type();
-    pConfig->osSevStatus = os_sev_status;
-    pConfig->bOsSevEnabled = os_sev_enabled;
+    pConfig->bOsCCEnabled = os_cc_enabled;
+    pConfig->bOsCCSevSnpEnabled = os_cc_sev_snp_enabled;
+    pConfig->bOsCCSnpVtomEnabled = os_cc_snp_vtom_enabled;
+    pConfig->bOsCCTdxEnabled = os_cc_tdx_enabled;
 }
 
 NvU32 osApiLockAcquireConfigureFlags(NvU32 flags)
@@ -2525,7 +2846,7 @@ NV_STATUS osGpuLocksQueueRelease(OBJGPU *pGpu, NvU32 dpcGpuLocksRelease)
     return NV_SEMA_RELEASE_FAILED;
 }
 
-void osSyncWithRmDestroy()
+void osSyncWithRmDestroy(void)
 {
 }
 
@@ -2547,24 +2868,6 @@ void osModifyGpuSwStatePersistence
     {
         pOsGpuInfo->flags &= ~NV_FLAG_PERSISTENT_SW_STATE;
     }
-}
-
-NV_STATUS
-osSystemGetBatteryDrain(NvS32 *pChargeRate)
-{
-    NV_PRINTF(LEVEL_WARNING, "%s: Platform not supported!\n", __FUNCTION__);
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS
-osPexRecoveryCallback
-(
-    OS_GPU_INFO           *pOsGpuInfo,
-    OS_PEX_RECOVERY_STATUS Status
-)
-{
-    NV_ASSERT_FAILED("Not supported");
-    return NV_ERR_NOT_SUPPORTED;
 }
 
 //
@@ -2701,65 +3004,9 @@ NV_STATUS osGetVersion(NvU32 *majorVer, NvU32 *minorVer, NvU32 *buildNum, NvU16 
     return rmStatus;
 }
 
-NV_STATUS
-osGetSystemCpuLogicalCoreCounts
-(
-    NvU32 *pCpuCoreCount
-)
+NV_STATUS osGetIsOpenRM(NvBool *bOpenRm)
 {
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS
-osGetSystemCpuC0AndAPerfCounters
-(
-    NvU32                      coreIndex,
-    POS_CPU_CORE_PERF_COUNTERS pCpuPerfData
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-void
-osEnableCpuPerformanceCounters
-(
-    OBJOS *pOS
-)
-{
-    NV_ASSERT_FAILED("Not supported");
-    return;
-}
-
-NV_STATUS
-osCpuDpcObjInit
-(
-    void  **ppCpuDpcObj,
-    OBJGPU *pGpu,
-    NvU32   coreCount
-)
-{
-    NV_ASSERT_FAILED("Not supported");
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-void
-osCpuDpcObjQueue
-(
-    void                     **ppCpuDpcObj,
-    NvU32                      coreCount,
-    POS_CPU_CORE_PERF_COUNTERS pCpuPerfData
-)
-{
-    NV_ASSERT_FAILED("Not supported");
-}
-
-void
-osCpuDpcObjFree
-(
-    void **ppCpuDpcObj
-)
-{
-    NV_ASSERT_FAILED("Not supported");
+    return os_get_is_openrm(bOpenRm);
 }
 
 NV_STATUS
@@ -2876,7 +3123,32 @@ osGC6PowerControl
     NvU32  *pOut
 )
 {
-    return NV_ERR_NOT_SUPPORTED;
+    NV_STATUS status;
+    NvU32 inOut   = cmd;
+    NvU16 rtnSize = sizeof(inOut);
+
+    if (FLD_TEST_DRF(_JT_FUNC, _POWERCONTROL, _GPU_POWER_CONTROL, _GSS, inOut))
+    {
+        if (!pOut)
+        {
+            return NV_ERR_INVALID_ARGUMENT;
+        }
+    }
+
+    status = osCallACPI_DSM(pGpu,
+                            ACPI_DSM_FUNCTION_JT,
+                            JT_FUNC_POWERCONTROL,
+                            &inOut,
+                            &rtnSize);
+
+    if ((status != NV_OK) || !pOut)
+    {
+        return status;
+    }
+
+    *pOut = inOut;
+
+    return NV_OK;
 }
 
 NvBool osTestPcieExtendedConfigAccess(void *handle, NvU32 offset)
@@ -2934,6 +3206,15 @@ NvBool osTestPcieExtendedConfigAccess(void *handle, NvU32 offset)
     }
 
     return configAccess;
+}
+
+static NvBool skipIovaMappingForTegra
+(
+    PIOVAMAPPING pIovaMapping,
+    nv_state_t *nv
+)
+{
+    return NV_FALSE;
 }
 
 /*!
@@ -2994,7 +3275,12 @@ osIovaMap
     // since the physical address is already the DMA address to be used by the
     // GPU.
     //
-    if (memdescGetFlag(pIovaMapping->pPhysMemDesc, MEMDESC_FLAGS_GUEST_ALLOCATED))
+    // For carveout memory, we setup identity mapping, so physical
+    // address is same as the DMA address.
+    //
+    //
+    if (memdescGetFlag(pIovaMapping->pPhysMemDesc, MEMDESC_FLAGS_ALLOC_FROM_SCANOUT_CARVEOUT) ||
+        memdescGetFlag(pIovaMapping->pPhysMemDesc, MEMDESC_FLAGS_GUEST_ALLOCATED))
     {
         return NV_OK;
     }
@@ -3052,10 +3338,16 @@ osIovaMap
     KernelMemorySystem *pRootKernelMemorySystem = GPU_GET_KERNEL_MEMORY_SYSTEM(pRootMemDesc->pGpu);
     if (bIsIndirectPeerMapping)
     {
+        //
+        // If the first page from the memdesc is in FB then the remaining pages
+        // should also be in FB. If the memdesc is contiguous, check that it is
+        // contained within the coherent CPU FB range. memdescGetNvLinkGpa()
+        // will check that each page is in FB to handle the discontiguous case.
+        //
         NvU64 atsBase = base + pRootKernelMemorySystem->coherentCpuFbBase;
+        NvU64 atsEnd = bIsContig ? (atsBase + pIovaMapping->pPhysMemDesc->Size) : atsBase;
         if ((atsBase >= pRootKernelMemorySystem->coherentCpuFbBase) &&
-             (atsBase + pIovaMapping->pPhysMemDesc->Size <=
-              pRootKernelMemorySystem->coherentCpuFbEnd))
+             (atsEnd <= pRootKernelMemorySystem->coherentCpuFbEnd))
         {
             bIsFbOffset = NV_TRUE;
         }
@@ -3093,6 +3385,11 @@ osIovaMap
             NV_PRINTF(LEVEL_ERROR, "%s Failed to get SPA\n", __FUNCTION__);
             return status;
         }
+    }
+
+    if (skipIovaMappingForTegra(pIovaMapping, nv))
+    {
+        return NV_OK;
     }
 
     if (!bIsBar0 && (!bIsFbOffset || bIsIndirectPeerMapping))
@@ -3181,15 +3478,21 @@ osIovaUnmap
     }
 
     //
-    // For guest-allocated memory, we never actually remapped the memory, so we
-    // shouldn't try to unmap it here.
+    // For guest-allocated or carveout memory, we never actually remapped the
+    // memory, so we shouldn't try to unmap it here.
     //
-    if (memdescGetFlag(pIovaMapping->pPhysMemDesc, MEMDESC_FLAGS_GUEST_ALLOCATED))
+    if (memdescGetFlag(pIovaMapping->pPhysMemDesc, MEMDESC_FLAGS_ALLOC_FROM_SCANOUT_CARVEOUT) ||
+        memdescGetFlag(pIovaMapping->pPhysMemDesc, MEMDESC_FLAGS_GUEST_ALLOCATED))
     {
         return;
     }
 
     nv = NV_GET_NV_STATE(pGpu);
+
+    if (skipIovaMappingForTegra(pIovaMapping, nv))
+    {
+        return;
+    }
 
     if (memdescGetFlag(pIovaMapping->pPhysMemDesc, MEMDESC_FLAGS_PEER_IO_MEM))
     {
@@ -3365,7 +3668,7 @@ osGetGpuRailVoltageInfo
  * @return pointer to the security token.
  */
 PSECURITY_TOKEN
-osGetSecurityToken()
+osGetSecurityToken(void)
 {
     NV_STATUS rmStatus;
     TOKEN_USER *pTokenUser;
@@ -3431,8 +3734,8 @@ osValidateClientTokens
     PTOKEN_USER  pClientTokenUser  = (PTOKEN_USER)pClientSecurityToken;
     PTOKEN_USER  pCurrentTokenUser = (PTOKEN_USER)pCurrentSecurityToken;
 
-    NV_ASSERT_OR_RETURN((pClientTokenUser != NULL), NV_ERR_INVALID_POINTER);
-    NV_ASSERT_OR_RETURN((pCurrentTokenUser != NULL), NV_ERR_INVALID_POINTER);
+    if (pClientTokenUser == NULL || pCurrentTokenUser == NULL)
+        return NV_ERR_INVALID_POINTER;
 
     if ((pClientTokenUser->euid != pCurrentTokenUser->euid) &&
         (pClientTokenUser->pid != pCurrentTokenUser->pid))
@@ -3497,17 +3800,14 @@ osRemoveGpuSupported
  * - All address values are in the System Physical Address (SPA) space
  * - Targets can either be "Local" (bIsPeer=False) or for a specified "Peer"
  *   (bIsPeer=True, peerIndex=#) GPU
- * - Granularity of the target address space is returned as a bit shift value
- *   (e.g. granularity=37 implies a granularity of 128GiB)
  * - Target address and mask values have a specified bit width, and represent
  *   the higher order bits above the target address granularity
  *
  * @param[in]   pGpu                GPU object pointer
- * @param[out]  pAddrSysPhys        Pointer to hold SPA aligned at 128GB boundary
+ * @param[out]  pAddrSysPhys        Pointer to hold SPA
  * @param[out]  pAddrWidth          Address range width value pointer
  * @param[out]  pMask               Mask value pointer
  * @param[out]  pMaskWidth          Mask width value pointer
- * @param[out]  pGranularity        Granularity value pointer
  * @param[in]   bIsPeer             NV_TRUE if this is a peer, local GPU otherwise
  * @param[in]   peerIndex           Peer index
  *
@@ -3520,11 +3820,10 @@ NV_STATUS
 osGetAtsTargetAddressRange
 (
     OBJGPU *pGpu,
-    NvU32   *pAddrSysPhys,
+    NvU64   *pAddrSysPhys,
     NvU32   *pAddrWidth,
     NvU32   *pMask,
     NvU32   *pMaskWidth,
-    NvU32   *pGranularity,
     NvBool  bIsPeer,
     NvU32   peerIndex
 )
@@ -3548,27 +3847,21 @@ osGetAtsTargetAddressRange
     if (bIsPeer)
     {
         const int addrWidth = 0x10;
-        const NvU32 guestAddrGranularity = 37;
 
         *pAddrSysPhys = 0;
         *pAddrWidth = addrWidth;
         *pMask = 0;
         *pMaskWidth = addrMaskWidth;
-        *pGranularity = guestAddrGranularity;
         return NV_OK;
     }
     else
     {
-        NvU64 addrSysPhys;
-
-        NV_STATUS status = nv_get_device_memory_config(nv, &addrSysPhys, NULL,
-                                                       pAddrWidth, pGranularity, NULL);
+        NV_STATUS status = nv_get_device_memory_config(nv, pAddrSysPhys, NULL, NULL,
+                                                       pAddrWidth, NULL);
         if (status == NV_OK)
         {
             *pMask = NVBIT(*pAddrWidth) - 1U;
             *pMaskWidth = addrMaskWidth;
-
-            *pAddrSysPhys = addrSysPhys >> *pGranularity;
         }
         return status;
     }
@@ -3600,6 +3893,7 @@ osGetFbNumaInfo
 (
     OBJGPU *pGpu,
     NvU64  *pAddrPhys,
+    NvU64  *pAddrRsvdPhys,
     NvS32  *pNodeId
 )
 {
@@ -3615,7 +3909,8 @@ osGetFbNumaInfo
 
     nv = NV_GET_NV_STATE(pGpu);
 
-    NV_STATUS status = nv_get_device_memory_config(nv, NULL, pAddrPhys, NULL, NULL, pNodeId);
+    NV_STATUS status = nv_get_device_memory_config(nv, NULL, pAddrPhys,
+                                                   pAddrRsvdPhys, NULL, pNodeId);
 
     return status;
 #endif
@@ -3646,28 +3941,17 @@ osGetForcedC2CConnection
     int i, ret;
     NV_STATUS status;
     char path[64];
-    OBJOS *pOS;
-    OBJSYS *pSys;
 
     NV_ASSERT_OR_RETURN((pLinkConnection != NULL), NV_ERR_INVALID_POINTER);
     NV_ASSERT_OR_RETURN((maxLinks > 0), NV_ERR_NOT_SUPPORTED);
     NV_ASSERT_OR_RETURN((pGpu != NULL), NV_ERR_INVALID_ARGUMENT);
-
-    pSys = SYS_GET_INSTANCE();
-    pOS = SYS_GET_OS(pSys);
-    if (pOS == NULL || pOS->osSimEscapeRead == NULL)
-    {
-        NV_PRINTF(LEVEL_ERROR, "%s: escape reads not supported on platform\n",
-                  __FUNCTION__);
-        return NV_ERR_NOT_SUPPORTED;
-    }
 
     for (i = 0; i < maxLinks; i++)
     {
         ret = os_snprintf(path, sizeof(path), "CPU_MODEL|CM_ATS_ADDRESS|C2C%u", i);
         NV_ASSERT((ret > 0) && (ret < (sizeof(path) - 1)));
 
-        status = pOS->osSimEscapeRead(pGpu, path, 0, 4, &pLinkConnection[i]);
+        status = gpuSimEscapeRead(pGpu, path, 0, 4, &pLinkConnection[i]);
         if (status == NV_OK)
         {
             NV_PRINTF(LEVEL_INFO, "%s: %s=0x%X\n", __FUNCTION__,
@@ -3675,7 +3959,7 @@ osGetForcedC2CConnection
         }
         else
         {
-            NV_PRINTF(LEVEL_INFO, "%s: osSimEscapeRead for '%s' failed (%u)\n",
+            NV_PRINTF(LEVEL_INFO, "%s: gpuSimEscapeRead for '%s' failed (%u)\n",
                       __FUNCTION__, path, status);
             return NV_ERR_NOT_SUPPORTED;
         }
@@ -3759,7 +4043,7 @@ osGetSmbiosTable
     void *pMappedAddr = NULL;
     NvU64 basePAddr = 0;
 
-    if (!NVCPU_IS_X86_64)
+    if (!NVCPU_IS_X86_64 && !NVCPU_IS_AARCH64)
     {
         return NV_ERR_NOT_SUPPORTED;
     }
@@ -3945,24 +4229,34 @@ osAllocPagesNode
     return status;
 }
 
-NV_STATUS
+void
 osAllocAcquirePage
 (
-    NvU64      pAddress
+    NvU64 pAddress,
+    NvU32 pageCount
 )
 {
-    os_get_page(pAddress);
-    return NV_OK;
+    NvU32 i;
+
+    for (i = 0; i < pageCount; i++)
+    {
+        os_get_page(pAddress + (i << os_page_shift));
+    }
 }
 
-NV_STATUS
+void
 osAllocReleasePage
 (
-    NvU64       pAddress
+    NvU64 pAddress,
+    NvU32 pageCount
 )
 {
-    os_put_page(pAddress);
-    return NV_OK;
+    NvU32 i;
+
+    for (i = 0; i < pageCount; i++)
+    {
+        os_put_page(pAddress + (i << os_page_shift));
+    }
 }
 
 /*
@@ -3992,58 +4286,16 @@ osCountTailPages
     return os_count_tail_pages(pAddress);
 }
 
-/*
- *  @brief Upon success, gets NPU register address range.
- *
- *  @param[in]  pOsGpuInfo       OS specific GPU information pointer
- *  @param[out] pBase            base (physical) of NPU register address range
- *  @param[out] pSize            size of NPU register address range
- */
-NV_STATUS
-osGetIbmnpuGenregInfo
-(
-    OS_GPU_INFO *pOsGpuInfo,
-    NvU64       *pBase,
-    NvU64       *pSize
-)
-{
-    return nv_get_ibmnpu_genreg_info(pOsGpuInfo, pBase, pSize, NULL);
-}
-
-/*
- *  @brief Upon success, gets NPU's relaxed ordering mode.
- *
- *  @param[in]  pOsGpuInfo       OS specific GPU information pointer
- *  @param[out] pMode            relaxed ordering mode
- */
-NV_STATUS
-osGetIbmnpuRelaxedOrderingMode
-(
-    OS_GPU_INFO *pOsGpuInfo,
-    NvBool      *pMode
-)
-{
-    return nv_get_ibmnpu_relaxed_ordering_mode(pOsGpuInfo, pMode);
-}
-
-/*
- *  @brief Waits for NVLink HW flush on an NPU associated with a GPU.
- *
- *  @param[in]  pOsGpuInfo       OS specific GPU information pointer
- */
-void
-osWaitForIbmnpuRsync
-(
-    OS_GPU_INFO *pOsGpuInfo
-)
-{
-    nv_wait_for_ibmnpu_rsync(pOsGpuInfo);
-}
-
-NvU32
-osGetPageSize()
+NvU64
+osGetPageSize(void)
 {
     return os_page_size;
+}
+
+NvU8
+osGetPageShift(void)
+{
+    return os_page_shift;
 }
 
 
@@ -4463,7 +4715,8 @@ osRmCapRelease
 #define OS_RM_CAP_SYS_MIG_DIR                   0
 #define OS_RM_CAP_SYS_SMC_CONFIG_FILE           1
 #define OS_RM_CAP_SYS_SMC_MONITOR_FILE          2
-#define OS_RM_CAP_SYS_COUNT                     3
+#define OS_RM_CAP_SYS_FABRIC_IMEX_MGMT_FILE     3
+#define OS_RM_CAP_SYS_COUNT                     4
 
 NV_STATUS
 osRmCapRegisterSys
@@ -4514,6 +4767,15 @@ osRmCapRegisterSys
         goto failed;
     }
     ppCaps[OS_RM_CAP_SYS_SMC_MONITOR_FILE] = cap;
+
+    cap = os_nv_cap_create_file_entry(nvidia_caps_root, "fabric-imex-mgmt", OS_RUSR);
+    if (cap == NULL)
+    {
+        NV_PRINTF(LEVEL_ERROR, "Failed to create imex file\n");
+        status = NV_ERR_OPERATING_SYSTEM;
+        goto failed;
+    }
+    ppCaps[OS_RM_CAP_SYS_FABRIC_IMEX_MGMT_FILE] = cap;
 
     return NV_OK;
 
@@ -4583,6 +4845,11 @@ osRmCapAcquire
             index = OS_RM_CAP_SYS_SMC_MONITOR_FILE;
             break;
         }
+        case NV_RM_CAP_SYS_FABRIC_IMEX_MGMT:
+        {
+            index = OS_RM_CAP_SYS_FABRIC_IMEX_MGMT_FILE;
+            break;
+        }
         default:
         {
             return NV_ERR_INVALID_ARGUMENT;
@@ -4629,8 +4896,43 @@ osRmCapInitDescriptor
 }
 
 /*
+ * @brief Checks if IMEX channel support is present.
+ */
+NvBool
+osImexChannelIsSupported(void)
+{
+    return os_imex_channel_is_supported;
+}
+
+/*
+ * @brief Returns IMEX channel count.
+ */
+NvS32
+osImexChannelCount
+(
+    void
+)
+{
+    return os_imex_channel_count();
+}
+
+/*
+ * @brief Returns IMEX channel number.
+ *
+ * @param[in] descriptor   OS specific descriptor to query channel number.
+ *
+ */
+NvS32
+osImexChannelGet(NvU64 descriptor)
+{
+    return os_imex_channel_get(descriptor);
+}
+
+/*
  * @brief Generates random bytes which can be used as a universally unique
  *        identifier.
+ *
+ * This function may sleep (interruptible).
  *
  * @param[out] pBytes        Array of random bytes
  * @param[in]  numBytes      Size of the array
@@ -4642,9 +4944,7 @@ osGetRandomBytes
     NvU16 numBytes
 )
 {
-    os_get_random_bytes(pBytes, numBytes);
-
-    return NV_OK;
+    return os_get_random_bytes(pBytes, numBytes);
 }
 
 /*
@@ -4728,6 +5028,46 @@ osReadPFPciConfigInVF
 }
 
 /*!
+ * @brief Sends an MRQ (message-request) to BPMP
+ *
+ * The request, response, and ret parameters of this function correspond to the
+ * components of the tegra_bpmp_message struct, which BPMP uses to receive
+ * MRQs.
+ *
+ * @param[in]  pGpu               OBJGPU pointer
+ * @param[in]  mrq                MRQ_xxx ID specifying what is requested
+ * @param[in]  pRequestData       Pointer to request input data
+ * @param[in]  requestDataSize    Size of structure pointed to by pRequestData
+ * @param[out] pResponseData      Pointer to response output data
+ * @param[in]  responseDataSize   Size of structure pointed to by pResponseData
+ * @param[out] ret                MRQ return code (from "ret" element of
+ *                                  tegra_bpmp_message struct)
+ * @param[out] apiRet             Return code from tegra_bpmp_transfer call
+ *
+ * @returns NV_OK if successful,
+ *          NV_ERR_NOT_SUPPORTED if the functionality is not available,
+ *          NV_ERR_INVALID_POINTER if the tegra_bpmp struct pointer could not
+ *            be obtained from nv, or
+ *          NV_ERR_GENERIC if the tegra_bpmp_transfer call failed (see apiRet
+ *            for Linux error code).
+ */
+NV_STATUS
+osTegraSocBpmpSendMrq
+(
+    OBJGPU      *pGpu,
+    NvU32        mrq,
+    const void  *pRequestData,
+    NvU32        requestDataSize,
+    void        *pResponseData,
+    NvU32        responseDataSize,
+    NvS32       *pRet,
+    NvS32       *pApiRet
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+/*!
  * @brief Returns IMP-relevant data collected from other modules
  *
  * This function is basically a wrapper to call the unix/linux layer.
@@ -4744,6 +5084,35 @@ NV_STATUS
 osTegraSocGetImpImportData
 (
     TEGRA_IMP_IMPORT_DATA *pTegraImpImportData
+)
+{
+    return NV_ERR_NOT_SUPPORTED;
+}
+
+/*!
+ * @brief Tells BPMP whether or not RFL is valid
+ *
+ * Display HW generates an ok_to_switch signal which asserts when mempool
+ * occupancy is high enough to be able to turn off memory long enough to
+ * execute a dramclk frequency switch without underflowing display output.
+ * ok_to_switch drives the RFL ("request for latency") signal in the memory
+ * unit, and the switch sequencer waits for this signal to go active before
+ * starting a dramclk switch.  However, if the signal is not valid (e.g., if
+ * display HW or SW has not been initialized yet), the switch sequencer ignores
+ * the signal.  This API tells BPMP whether or not the signal is valid.
+ *
+ * @param[in] pOsGpuInfo    Per GPU Linux state
+ * @param[in] bEnable       True if RFL will be valid; false if invalid
+ *
+ * @returns NV_OK if successful,
+ *          NV_ERR_NOT_SUPPORTED if the functionality is not available, or
+ *          NV_ERR_GENERIC if some other kind of error occurred.
+ */
+NV_STATUS
+osTegraSocEnableDisableRfl
+(
+    OS_GPU_INFO *pOsGpuInfo,
+    NvBool       bEnable
 )
 {
     return NV_ERR_NOT_SUPPORTED;
@@ -4798,7 +5167,8 @@ osCreateNanoTimer
     void **pTimer
 )
 {
-    return NV_ERR_NOT_SUPPORTED;
+    nv_create_nano_timer(pOsGpuInfo, pTmrEvent, (nv_nano_timer_t **)pTimer);
+    return NV_OK;
 }
 
 /*!
@@ -4806,7 +5176,7 @@ osCreateNanoTimer
  *
  * @param[in] pOsGpuInfo     OS specific GPU information pointer
  * @param[in] pTimer         pointer to high resolution timer object
- * @param[in] timens         time in nano seconds
+ * @param[in] timeNs         Relative time in nano seconds
  */
 NV_STATUS
 osStartNanoTimer
@@ -4816,7 +5186,8 @@ osStartNanoTimer
     NvU64 timeNs
 )
 {
-    return NV_ERR_NOT_SUPPORTED;
+    nv_start_nano_timer(pOsGpuInfo, (nv_nano_timer_t *)pTimer, timeNs);
+    return NV_OK;
 }
 
 /*!
@@ -4832,8 +5203,8 @@ osCancelNanoTimer
     void *pTimer
 )
 {
-    return NV_ERR_NOT_SUPPORTED;
-
+    nv_cancel_nano_timer(pOsGpuInfo, (nv_nano_timer_t *)pTimer);
+    return NV_OK;
 }
 
 /*!
@@ -4850,7 +5221,8 @@ osDestroyNanoTimer
     void *pTimer
 )
 {
-    return NV_ERR_NOT_SUPPORTED;
+    nv_destroy_nano_timer(pOsGpuInfo, (nv_nano_timer_t *)pTimer);
+    return NV_OK;
 }
 
 /*!
@@ -4956,6 +5328,51 @@ osGetSyncpointAperture
     NvU32 *offset
 )
 {
+    return nv_get_syncpoint_aperture(syncpointId, physAddr, limit, offset);
+}
+
+/*!
+ * @brief Enable PCIe AtomicOp Requester Enable and return
+ * the completer side capabilities that the requester can send.
+ *
+ * @param[in]    pOsGpuInfo   OS_GPU_INFO OS specific GPU information pointer
+ * @param[out]   pMask        mask of supported atomic size, including one or more of:
+ *                            OS_PCIE_CAP_MASK_REQ_ATOMICS_32
+ *                            OS_PCIE_CAP_MASK_REQ_ATOMICS_64
+ *                            OS_PCIE_CAP_MASK_REQ_ATOMICS_128
+ *
+ * @returns NV_STATUS, NV_OK if success
+ *                     NV_ERR_NOT_SUPPORTED if platform doesn't support this
+ *                     feature.
+ *                     NV_ERR_GENERIC for any other error
+ */
+
+NV_STATUS
+osConfigurePcieReqAtomics
+(
+    OS_GPU_INFO *pOsGpuInfo,
+    NvU32       *pMask
+)
+{
+    if (pMask)
+    {
+        *pMask = 0U;
+        if (pOsGpuInfo)
+        {
+            if (os_enable_pci_req_atomics(pOsGpuInfo->handle,
+                                          OS_INTF_PCIE_REQ_ATOMICS_32BIT) == NV_OK)
+                *pMask |= OS_PCIE_CAP_MASK_REQ_ATOMICS_32;
+            if (os_enable_pci_req_atomics(pOsGpuInfo->handle,
+                                          OS_INTF_PCIE_REQ_ATOMICS_64BIT) == NV_OK)
+                *pMask |= OS_PCIE_CAP_MASK_REQ_ATOMICS_64;
+            if (os_enable_pci_req_atomics(pOsGpuInfo->handle,
+                                          OS_INTF_PCIE_REQ_ATOMICS_128BIT) == NV_OK)
+                *pMask |= OS_PCIE_CAP_MASK_REQ_ATOMICS_128;
+
+            if (*pMask != 0)
+                return NV_OK;
+        }
+    }
     return NV_ERR_NOT_SUPPORTED;
 }
 
@@ -4976,8 +5393,183 @@ osIsGpuAccessible
     return nv_is_gpu_accessible(NV_GET_NV_STATE(pGpu));
 }
 
+/*!
+ * @brief Check whether GPU has received a shutdown notification from the OS
+ */
+NvBool
+osIsGpuShutdown
+(
+    OBJGPU *pGpu
+)
+{
+    nv_state_t *nv = NV_GET_NV_STATE(pGpu);
+    return nv ? nv->is_shutdown : NV_TRUE;
+}
+
+/*!
+ * @brief Check GPU OS info matches
+ *
+ * @param[in]  pGpu           GPU object pointer
+ *
+ * @returns NVBool, Returns TRUE if matched.
+ */
+NvBool
+osMatchGpuOsInfo
+(
+    OBJGPU *pGpu,
+    void   *pOsInfo
+)
+{
+    return nv_match_gpu_os_info(NV_GET_NV_STATE(pGpu), pOsInfo);
+}
+
+/*!
+ * @brief Release GPU OS info.
+ *
+ * @param[in]  pOsInfo        GPU OS info pointer
+ *
+ * @returns void
+ */
+void
+osReleaseGpuOsInfo
+(
+    void   *pOsInfo
+)
+{
+    nv_put_file_private(pOsInfo);
+}
+
+/*!
+ * @brief Get free, total memory of a NUMA node by NUMA node ID from kernel.
+ *
+ * @param[in]      numaId              NUMA node ID.
+ * @param[out]     free_memory_bytes   free memory in bytes.
+ * @param[out]     total_memory_bytes  total memory in bytes.
+ *
+ */
+void
+osGetNumaMemoryUsage
+(
+    NvS32 numaId,
+    NvU64 *free_memory_bytes,
+    NvU64 *total_memory_bytes
+)
+{
+    NV_STATUS status = os_get_numa_node_memory_usage(numaId,
+                                                     free_memory_bytes,
+                                                     total_memory_bytes);
+    NV_ASSERT(status == NV_OK);
+}
+
+/*!
+ * @brief Add GPU memory as a NUMA node.
+ *
+ * @param[in/out]  pOsGpuInfo   OS specific GPU information pointer
+ * @param[in]      offset       start offset of the partition within FB
+ * @param[in]      size         size of the partition
+ * @param[out]     pNumaNodeId  OS NUMA node id for the added memory.
+ *
+ * @returns NV_OK if all is okay.  Otherwise an error-specific value.
+ *
+ */
+NV_STATUS
+osNumaAddGpuMemory
+(
+    OS_GPU_INFO *pOsGpuInfo,
+    NvU64       offset,
+    NvU64       size,
+    NvU32       *pNumaNodeId
+)
+{
+    nv_state_t *nv = pOsGpuInfo;
+
+    return os_numa_add_gpu_memory(nv->handle, offset, size, pNumaNodeId);
+}
+
+/*!
+ * @brief Remove a particular SMC partition's GPU memory from OS kernel.
+ *
+ * Remove GPU memory from the OS kernel that is earlier added as a NUMA node
+ * to the kernel in platforms where GPU is coherently connected to the CPU.
+ *
+ * @param[in/out]  pOsGpuInfo   OS_GPU_INFO OS specific GPU information pointer
+ * @param[in]      offset       start offset of the partition within FB
+ * @param[in]      size         size of the partition
+ * @param[in]      numaNodeId   OS NUMA node id of the memory to be removed.
+ *
+ */
+void
+osNumaRemoveGpuMemory
+(
+    OS_GPU_INFO *pOsGpuInfo,
+    NvU64       offset,
+    NvU64       size,
+    NvU32       numaNodeId
+)
+{
+    nv_state_t *nv = pOsGpuInfo;
+
+    NV_STATUS status = os_numa_remove_gpu_memory(nv->handle, offset, size, numaNodeId);
+    NV_ASSERT(status == NV_OK);
+
+    return;
+}
+
 NvBool
 osDmabufIsSupported(void)
 {
     return os_dma_buf_enabled;
+}
+
+NV_STATUS
+osGetEgmInfo
+(
+    OBJGPU *pGpu,
+    NvU64  *pPhysAddr,
+    NvU64  *pSize,
+    NvS32  *pNodeId
+)
+{
+    return nv_get_egm_info(NV_GET_NV_STATE(pGpu), pPhysAddr, pSize, pNodeId);
+}
+
+/*!
+ * @brief Offline (i.e., blacklist) the page containing a given address from OS kernel.
+ *
+ * @param[in]      address   Address (SPA) of the page to be offlined
+ *
+ */
+NV_STATUS
+osOfflinePageAtAddress
+(
+    NvU64       address
+)
+{
+    return os_offline_page_at_address(address);
+}
+
+void osAllocatedRmClient(void *pOsInfo)
+{
+    nv_file_private_t* nvfp = (nv_file_private_t*)pOsInfo;
+
+    if (nvfp != NULL)
+        nvfp->bCleanupRmapi = NV_TRUE;
+}
+
+/*!
+ * @brief Update variable to indicate console managed by drm driver.
+ *
+ * @param[in]  OBJGPU  GPU object pointer
+ *
+ * @returns void
+ */
+void
+osDisableConsoleManagement
+(
+    OBJGPU *pGpu
+)
+{
+    nv_state_t *nv  = NV_GET_NV_STATE(pGpu);
+
+    nv->client_managed_console = NV_TRUE;
 }

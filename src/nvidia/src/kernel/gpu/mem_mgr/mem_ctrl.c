@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2004-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2004-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -32,15 +32,15 @@
 #include "core/core.h"
 #include "os/os.h"
 #include "gpu/mem_sys/kern_mem_sys.h"
-#include "gpu/mem_mgr/mem_mgr.h"
-#include "gpu/mem_mgr/heap.h"
 #include "platform/platform.h"
+#include "gpu/mem_mgr/mem_mgr.h"
+#include "platform/sli/sli.h"
+
 #include "gpu/mem_mgr/mem_desc.h"
 #include "rmapi/client_resource.h"
 #include "rmapi/control.h"
 #include "gpu_mgr/gpu_mgr.h"
 #include "rmapi/rs_utils.h"
-#include "gpu/device/device.h"
 #include "gpu/subdevice/subdevice.h"
 #include "vgpu/rpc.h"
 
@@ -58,25 +58,22 @@ memCtrlCmdGetSurfaceCompressionCoverageLvm_IMPL
     NvU32               _gpuCacheAttr, _gpuP2PCacheAttr;
     NV_STATUS           status = NV_OK;
     CALL_CONTEXT       *pCallContext = resservGetTlsCallContext();
-    RmCtrlParams       *pRmCtrlParams = pCallContext->pControlParams->pLegacyParams;
     OBJGPU             *pGpu = pMemory->pGpu;
-
-    if (IS_VIRTUAL(pGpu))
-    {
-        NV_RM_RPC_CONTROL(pRmCtrlParams->pGpu, pRmCtrlParams->hClient,
-                          pRmCtrlParams->hObject, pRmCtrlParams->cmd,
-                          pRmCtrlParams->pParams, pRmCtrlParams->paramsSize, status);
-        return status;
-    }
 
     if (pParams->hSubDevice)
     {
+        Subdevice *pSubDevice;
+
         // Alloc operation in unicast mode
-        NvHandle hDevice;
-        if ((status = CliSetSubDeviceContext(pRmCtrlParams->hClient, pParams->hSubDevice, &hDevice, &pGpu)) != NV_OK)
-        {
+        status = subdeviceGetByHandle(pCallContext->pClient,
+                pParams->hSubDevice, &pSubDevice);
+
+        if (status != NV_OK)
             return status;
-        }
+
+        pGpu = GPU_RES_GET_GPU(pSubDevice);
+
+        GPU_RES_SET_THREAD_BC_STATE(pSubDevice);
     }
 
     status = memmgrGetSurfacePhysAttr_HAL(pGpu, GPU_GET_MEMORY_MANAGER(pGpu), pMemory,
@@ -86,19 +83,6 @@ memCtrlCmdGetSurfaceCompressionCoverageLvm_IMPL
                                           &_gpuCacheAttr, &_gpuP2PCacheAttr,
                                           &_contigSegmentSize);
     return status;
-}
-
-NV_STATUS
-memCtrlCmdGetSurfacePartitionStrideLvm_IMPL
-(
-    Memory *pMemory,
-    NV0041_CTRL_GET_SURFACE_PARTITION_STRIDE_PARAMS *pParams
-)
-{
-    // Only partitionStride == 256B is supported by RM.
-    pParams->partitionStride = 256;
-
-    return NV_OK;
 }
 
 NV_STATUS
@@ -132,15 +116,23 @@ memCtrlCmdGetSurfaceInfoLvm_IMPL
         {
             case NV0041_CTRL_SURFACE_INFO_INDEX_ATTRS:
             {
-                if (pMemory->pHwResource->attr & DRF_DEF(OS32, _ATTR, _COMPR, _REQUIRED))
+                if ((pMemory->pHwResource != NULL) &&
+                     pMemory->pHwResource->attr & DRF_DEF(OS32, _ATTR, _COMPR, _REQUIRED))
                     data |= NV0041_CTRL_SURFACE_INFO_ATTRS_COMPR;
-                if (pMemory->pHwResource->attr & DRF_DEF(OS32, _ATTR, _ZCULL, _REQUIRED))
+                if ((pMemory->pHwResource != NULL) &&
+                     pMemory->pHwResource->attr & DRF_DEF(OS32, _ATTR, _ZCULL, _REQUIRED))
                     data |= NV0041_CTRL_SURFACE_INFO_ATTRS_ZCULL;
                 break;
             }
             case NV0041_CTRL_SURFACE_INFO_INDEX_COMPR_COVERAGE:
             {
-                if (pMemory->pHwResource->attr & DRF_DEF(OS32, _ATTR, _COMPR, _REQUIRED))
+                //
+                // adding check for pHwResource, since host managed HW resource
+                // gets allocated only when ATTR is set to COMPR_REQUIRED
+                //
+                if ((pMemory->pHwResource != NULL) &&
+                     pMemory->pHwResource->attr &
+                    DRF_DEF(OS32, _ATTR, _COMPR, _REQUIRED))
                 {
                     zero = 0;
                     status = memmgrGetSurfacePhysAttr_HAL(pGpu, pMemoryManager,
@@ -169,7 +161,8 @@ memCtrlCmdGetSurfaceInfoLvm_IMPL
             }
             case NV0041_CTRL_SURFACE_INFO_INDEX_PHYS_ATTR:
             {
-                data = pMemory->pHwResource->attr & (DRF_SHIFTMASK(NV0041_CTRL_SURFACE_INFO_PHYS_ATTR_PAGE_SIZE) | DRF_SHIFTMASK(NV0041_CTRL_SURFACE_INFO_PHYS_ATTR_CPU_COHERENCY));
+                if (pMemory->pHwResource != NULL)
+                    data = pMemory->pHwResource->attr & (DRF_SHIFTMASK(NV0041_CTRL_SURFACE_INFO_PHYS_ATTR_PAGE_SIZE) | DRF_SHIFTMASK(NV0041_CTRL_SURFACE_INFO_PHYS_ATTR_CPU_COHERENCY) | DRF_SHIFTMASK(NV0041_CTRL_SURFACE_INFO_PHYS_ATTR_FORMAT));
                 break;
             }
             case NV0041_CTRL_SURFACE_INFO_INDEX_ADDR_SPACE_TYPE:
@@ -227,6 +220,29 @@ memCtrlCmdGetSurfaceInfoLvm_IMPL
 
         pSurfaceInfos[i].data = data;
     }
+
+    return status;
+}
+
+
+NV_STATUS
+memCtrlCmdGetSurfacePhysAttrLvm_IMPL
+(
+    Memory *pMemory,
+    NV0041_CTRL_GET_SURFACE_PHYS_ATTR_PARAMS *pGPAP
+)
+{
+    OBJGPU             *pGpu = pMemory->pGpu;
+    MemoryManager      *pMemoryManager = GPU_GET_MEMORY_MANAGER(pGpu);
+    NvU32               _zcullId, _lineMin, _lineMax;
+    NV_STATUS           status = NV_OK;
+
+    // get desired new attributes
+    status = memmgrGetSurfacePhysAttr_HAL(pGpu, pMemoryManager, pMemory, &pGPAP->memOffset, &pGPAP->memAperture,
+                                          &pGPAP->memFormat, &pGPAP->comprOffset, &pGPAP->comprFormat,
+                                          &_lineMin, &_lineMax, &_zcullId,
+                                          &pGPAP->gpuCacheAttr, &pGPAP->gpuP2PCacheAttr,
+                                          &pGPAP->contigSegmentSize);
 
     return status;
 }
@@ -330,7 +346,7 @@ memCtrlCmdGetMemPageSize_IMPL
 {
     OBJGPU             *pGpu = pMemory->pGpu;
     PMEMORY_DESCRIPTOR  pTempMemDesc = NULL;
-    NvU32               tempPageSize = 0;
+    NvU64               tempPageSize = 0;
 
     SLI_LOOP_START(SLI_LOOP_FLAGS_BC_ONLY)
     {
@@ -400,6 +416,6 @@ memCtrlCmdGetTag_IMPL
 )
 {
     pParams->tag = pMemory->tag;
-    
+
     return NV_OK;
 }

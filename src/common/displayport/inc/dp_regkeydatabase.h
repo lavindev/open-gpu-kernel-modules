@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2020-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2020-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -34,9 +34,8 @@
 #include "dp_auxdefs.h"
 
 // Regkey Names
-#define NV_DP_REGKEY_ENABLE_AUDIO_BEYOND_48K          "ENABLE_AUDIO_BEYOND48K"
 #define NV_DP_REGKEY_OVERRIDE_DPCD_REV                "OVERRIDE_DPCD_REV"
-#define NV_DP_REGKEY_DISABLE_SSC                      "DISABLE_SSC"
+#define NV_DP_REGKEY_DISABLE_SSC                      "DISABLE_SSC" // SSC (Stream Status Changed)
 #define NV_DP_REGKEY_ENABLE_FAST_LINK_TRAINING        "ENABLE_FAST_LINK_TRAINING"
 #define NV_DP_REGKEY_DISABLE_MST                      "DISABLE_MST"
 #define NV_DP_REGKEY_ENABLE_INBAND_STEREO_SIGNALING   "ENABLE_INBAND_STEREO_SIGNALING"
@@ -44,11 +43,13 @@
 #define NV_DP_REGKEY_ENABLE_OCA_LOGGING               "ENABLE_OCA_LOGGING"
 #define NV_DP_REGKEY_REPORT_DEVICE_LOST_BEFORE_NEW    "HP_WAR_1707690"
 #define NV_DP_REGKEY_APPLY_LINK_BW_OVERRIDE_WAR       "APPLY_LINK_BW_OVERRIDE_WAR"
+// For DP2x, the regkey value needs to be in 10M convention
 #define NV_DP_REGKEY_APPLY_MAX_LINK_RATE_OVERRIDES    "APPLY_OVERRIDES_FOR_BUG_2489143"
 #define NV_DP_REGKEY_DISABLE_DSC                      "DISABLE_DSC"
 #define NV_DP_REGKEY_SKIP_ASSESSLINK_FOR_EDP          "HP_WAR_2189772"
 #define NV_DP_REGKEY_HDCP_AUTH_ONLY_ON_DEMAND         "DP_HDCP_AUTH_ONLY_ON_DEMAND"
 #define NV_DP_REGKEY_ENABLE_MSA_OVER_MST              "ENABLE_MSA_OVER_MST"
+#define NV_DP_REGKEY_DISABLE_DOWNSPREAD               "DISABLE_DOWNSPREAD"
 
 // Keep link alive for SST and MST
 #define NV_DP_REGKEY_KEEP_OPT_LINK_ALIVE              "DP_KEEP_OPT_LINK_ALIVE"
@@ -59,23 +60,51 @@
 
 #define NV_DP_REGKEY_FORCE_EDP_ILR                    "DP_BYPASS_EDP_ILR_REV_CHECK"
 
+// Message to power down video stream before power down link (set D3)
+#define NV_DP_REGKEY_POWER_DOWN_PHY                   "DP_POWER_DOWN_PHY"
+
+//
+// Regkey to re-assess max link if the first assessed link config
+// is lower than the panel max
+//
+#define NV_DP_REGKEY_REASSESS_MAX_LINK                "DP_REASSESS_MAX_LINK"
+
 //
 // DSC capability of downstream device should be decided based on device's own
 // and its parent's DSC capability.
 //
 #define NV_DP_DSC_MST_CAP_BUG_3143315                  "DP_DSC_MST_CAP_BUG_3143315"
 
-// Enable DSC Pass through support in MST mode.
-#define NV_DP_DSC_MST_ENABLE_PASS_THROUGH              "DP_DSC_MST_ENABLE_PASS_THROUGH"
+//
+// This regkey is controlling the if DPLib supports FPGA-specific Test UHBR.
+// The link rates are for internal test only.
+// This regkey is also used in RM. Both must be kept in sync.
+//
+#define NV_DP2X_REGKEY_FPGA_UHBR_SUPPORT                "DP2X_FPGA_UHBR_SUPPORT"
+#define NV_DP2X_REGKEY_FPGA_UHBR_SUPPORT_2_5G                           NVBIT(0)
+#define NV_DP2X_REGKEY_FPGA_UHBR_SUPPORT_2_7G                           NVBIT(1)
+#define NV_DP2X_REGKEY_FPGA_UHBR_SUPPORT_5_0G                           NVBIT(2)
 
-// Regkey to reduce number of 2H1OR LTs which fixes bug 3534707
-#define NV_DP_DSC_OPTIMIZE_LT_BUG_3534707              "DP_DSC_OPTIMIZE_LT_BUG_3534707"
-
-#define NV_DP_REGKEY_NO_REPLY_TIMER_FOR_BUSY_WAITING   "NO_REPLY_TIMER_FOR_BUSY_WAITING"
-
-#define NV_DP_REGKEY_DPCD_PROBING_FOR_BUSY_WAITING     "DP_DPCD_PROBING_FOR_BUSY_WAITING"
+#define NV_DP2X_IGNORE_CABLE_ID_CAPS                    "DP2X_IGNORE_CABLE_ID_CAPS"
 
 //
+// Bug 4388987 : This regkey will disable reading PCON caps for MST.
+//
+#define NV_DP_REGKEY_MST_PCON_CAPS_READ_DISABLED    "DP_BUG_4388987_WAR"
+#define NV_DP_REGKEY_DISABLE_TUNNEL_BW_ALLOCATION   "DP_DISABLE_TUNNEL_BW_ALLOCATION"
+
+// Bug 4793112 : On eDP panel, do not cache source OUI if it reads zero
+#define NV_DP_REGKEY_SKIP_ZERO_OUI_CACHE            "DP_SKIP_ZERO_OUI_CACHE"
+
+#define NV_DP_REGKEY_DISABLE_FIX_FOR_5019537        "DP_DISABLE_5019537_FIX"
+
+// Bug 5088957 : Force head shutdown in DpLib
+#define NV_DP_REGKEY_FORCE_HEAD_SHUTDOWN            "DP_WAR_5088957"
+
+// Bug 5041041 : Enable Lower BPP check for DSC
+#define NV_DP_REGKEY_ENABLE_LOWER_BPP_CHECK_FOR_DSC "DP_ENABLE_LOWER_BPP_CHECK"
+
+
 // Data Base used to store all the regkey values.
 // The actual data base is declared statically in dp_evoadapter.cpp.
 // All entries set to 0 before initialized by the first EvoMainLink constructor.
@@ -86,7 +115,6 @@ struct DP_REGKEY_DATABASE
 {
     bool  bInitialized; // set to true after the first EvoMainLink instance is constructed
     // Below are regkey values
-    bool  bAudioBeyond48kEnabled;
     NvU32 dpcdRevOveride;
     bool  bSscDisabled;
     bool  bFastLinkTrainingEnabled;
@@ -106,11 +134,19 @@ struct DP_REGKEY_DATABASE
     bool  bOptLinkKeptAliveSst;
     bool  bBypassEDPRevCheck;
     bool  bDscMstCapBug3143315;
-    bool  bDscMstEnablePassThrough;
-    bool  bDscOptimizeLTBug3534707;
-    bool  bNoReplyTimerForBusyWaiting;
-    bool  bDpcdProbingForBusyWaiting;
+    bool  bPowerDownPhyBeforeD3;
+    bool  bReassessMaxLink;
+    NvU32 supportInternalUhbrOnFpga;
+    bool  bIgnoreCableIdCaps;
+    bool  bMSTPCONCapsReadDisabled;
+    bool  bForceDisableTunnelBwAllocation;
+    bool  bDownspreadDisabled;
+    bool  bSkipZeroOuiCache;
+    bool  bDisable5019537Fix;
+    bool  bForceHeadShutdown;
+    bool  bEnableLowerBppCheckForDsc;
 };
 
-#endif //INCLUDED_DP_REGKEYDATABASE_H
+extern struct DP_REGKEY_DATABASE dpRegkeyDatabase;
 
+#endif //INCLUDED_DP_REGKEYDATABASE_H

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2021 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -30,7 +30,7 @@
 
 #include "lib/base_utils.h"
 #include "gpu/gpu.h"
-#include "objtmr.h"
+#include "gpu/timer/objtmr.h"
 #include "nvrm_registry.h"
 #include "core/thread_state.h"
 #include "core/locks.h"
@@ -314,8 +314,11 @@ _checkTimeout
         osGetCurrentTick(&timeInNs);
         if (timeInNs >= pTimeout->timeout)
         {
-            NV_PRINTF(LEVEL_INFO, "OS elapsed %llx >= %llx\n",
-                      timeInNs, pTimeout->timeout);
+            if (!(pTimeout->flags & GPU_TIMEOUT_FLAGS_BYPASS_JOURNAL_LOG))
+            {
+                NV_PRINTF(LEVEL_INFO, "OS elapsed %llx >= %llx\n",
+                          timeInNs, pTimeout->timeout);
+            }
             status = NV_ERR_TIMEOUT;
         }
     }
@@ -345,7 +348,10 @@ _checkTimeout
 
         if (pTimeout->timeout == 0)
         {
-            NV_PRINTF(LEVEL_INFO, "OS timeout == 0\n");
+            if (!(pTimeout->flags & GPU_TIMEOUT_FLAGS_BYPASS_JOURNAL_LOG))
+            {
+                NV_PRINTF(LEVEL_INFO, "OS timeout == 0\n");
+            }
             status =  NV_ERR_TIMEOUT;
         }
     }
@@ -363,8 +369,11 @@ _checkTimeout
 
         if (current >= pTimeout->timeout)
         {
-            NV_PRINTF(LEVEL_ERROR, "ptmr elapsed %llx >= %llx\n",
-                      current, pTimeout->timeout);
+            if (!(pTimeout->flags & GPU_TIMEOUT_FLAGS_BYPASS_JOURNAL_LOG))
+            {
+                NV_PRINTF(LEVEL_ERROR, "ptmr elapsed %llx >= %llx\n",
+                          current, pTimeout->timeout);
+            }
             status =  NV_ERR_TIMEOUT;
         }
     }
@@ -382,7 +391,10 @@ _checkTimeout
 
         if (pTimeout->timeout == 0)
         {
-            NV_PRINTF(LEVEL_INFO, "ptmr timeout == 0\n");
+            if (!(pTimeout->flags & GPU_TIMEOUT_FLAGS_BYPASS_JOURNAL_LOG))
+            {
+                NV_PRINTF(LEVEL_INFO, "ptmr timeout == 0\n");
+            }
             status =  NV_ERR_TIMEOUT;
         }
     }
@@ -418,7 +430,7 @@ timeoutCheck
 
     if (!(pTimeout->flags & GPU_TIMEOUT_FLAGS_BYPASS_CPU_YIELD))
     {
-        threadStateYieldCpuIfNecessary(pGpu);
+        threadStateYieldCpuIfNecessary(pGpu, !!(pTimeout->flags & GPU_TIMEOUT_FLAGS_BYPASS_JOURNAL_LOG));
     }
 
     //

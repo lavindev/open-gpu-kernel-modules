@@ -1,6 +1,13 @@
+
 #ifndef _G_TRACEABLE_NVOC_H_
 #define _G_TRACEABLE_NVOC_H_
 #include "nvoc/runtime.h"
+
+// Version of generated metadata structures
+#ifdef NVOC_METADATA_VERSION
+#undef NVOC_METADATA_VERSION
+#endif
+#define NVOC_METADATA_VERSION 1
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,6 +35,7 @@ extern "C" {
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
+#pragma once
 #include "g_traceable_nvoc.h"
 
 #ifndef __ANCI_TRACEABLE_H__
@@ -35,14 +43,24 @@ extern "C" {
 
 #include "core/core.h"
 
+
+// Private field names are wrapped in PRIVATE_FIELD, which does nothing for
+// the matching C source file, but causes diagnostics to be issued if another
+// source file references the field.
 #ifdef NVOC_TRACEABLE_H_PRIVATE_ACCESS_ALLOWED
 #define PRIVATE_FIELD(x) x
 #else
 #define PRIVATE_FIELD(x) NVOC_PRIVATE_FIELD(x)
 #endif
+
+
 struct OBJTRACEABLE {
+
+    // Metadata
     const struct NVOC_RTTI *__nvoc_rtti;
-    struct OBJTRACEABLE *__nvoc_pbase_OBJTRACEABLE;
+
+    // Ancestor object pointers for `staticCast` feature
+    struct OBJTRACEABLE *__nvoc_pbase_OBJTRACEABLE;    // traceable
 };
 
 #ifndef __NVOC_CLASS_OBJTRACEABLE_TYPEDEF__
@@ -54,6 +72,7 @@ typedef struct OBJTRACEABLE OBJTRACEABLE;
 #define __nvoc_class_id_OBJTRACEABLE 0x6305d2
 #endif /* __nvoc_class_id_OBJTRACEABLE */
 
+// Casting support
 extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJTRACEABLE;
 
 #define __staticCast_OBJTRACEABLE(pThis) \
@@ -65,7 +84,6 @@ extern const struct NVOC_CLASS_DEF __nvoc_class_def_OBJTRACEABLE;
 #define __dynamicCast_OBJTRACEABLE(pThis) \
     ((OBJTRACEABLE*)__nvoc_dynamicCast(staticCast((pThis), Dynamic), classInfo(OBJTRACEABLE)))
 #endif //__nvoc_traceable_h_disabled
-
 
 NV_STATUS __nvoc_objCreateDynamic_OBJTRACEABLE(OBJTRACEABLE**, Dynamic*, NvU32, va_list);
 
@@ -84,4 +102,5 @@ void objTraverseCaptureState_IMPL(struct Object *pObj);
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
 #endif // _G_TRACEABLE_NVOC_H_

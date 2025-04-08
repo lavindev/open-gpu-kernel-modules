@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2007-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2007-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -27,7 +27,7 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrl906f.finn
+// Source file:      ctrl/ctrl906f.finn
 //
 
 
@@ -119,6 +119,9 @@ typedef struct NV906F_CTRL_GET_CLASS_ENGINEID_PARAMS {
  * resetReason
  *   Specifies reason to reset a channel.
  *
+ * bIsRcPending
+ *   Specifies if an RC is pending on the channel
+ *
  * Possible status values returned are:
  *   NV_OK
  */
@@ -138,9 +141,10 @@ typedef struct NV906F_CTRL_GET_CLASS_ENGINEID_PARAMS {
 #define NV906F_CTRL_CMD_RESET_CHANNEL_PARAMS_MESSAGE_ID (0x2U)
 
 typedef struct NV906F_CTRL_CMD_RESET_CHANNEL_PARAMS {
-    NvU32 engineID;
-    NvU32 subdeviceInstance;
-    NvU32 resetReason;
+    NvU32  engineID;
+    NvU32  subdeviceInstance;
+    NvU32  resetReason;
+    NvBool bIsRcPending;
 } NV906F_CTRL_CMD_RESET_CHANNEL_PARAMS;
 
 /*
@@ -174,8 +178,6 @@ typedef struct NV906F_CTRL_CMD_RESET_CHANNEL_PARAMS {
  *   NV_ERR_INVALID_ARGUMENT
  *   NV_ERR_INVALID_STATE
  */
-
-
 #define NV906F_CTRL_CMD_EVENT_SET_NOTIFICATION (0x906f0203) /* finn: Evaluated from "(FINN_GF100_CHANNEL_GPFIFO_EVENT_INTERFACE_ID << 8) | NV906F_CTRL_EVENT_SET_NOTIFICATION_PARAMS_MESSAGE_ID" */
 
 #define NV906F_CTRL_EVENT_SET_NOTIFICATION_PARAMS_MESSAGE_ID (0x3U)
@@ -204,8 +206,6 @@ typedef struct NV906F_CTRL_EVENT_SET_NOTIFICATION_PARAMS {
  * Possible status values returned are:
  *   NV_OK
  */
-
-
 #define NV906F_CTRL_CMD_GET_DEFER_RC_STATE (0x906f0105) /* finn: Evaluated from "(FINN_GF100_CHANNEL_GPFIFO_GPFIFO_INTERFACE_ID << 8) | NV906F_CTRL_CMD_GET_DEFER_RC_STATE_PARAMS_MESSAGE_ID" */
 
 #define NV906F_CTRL_CMD_GET_DEFER_RC_STATE_PARAMS_MESSAGE_ID (0x5U)

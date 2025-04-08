@@ -1,5 +1,5 @@
 /*******************************************************************************
-    Copyright (c) 2015-2021 NVIDIA Corporation
+    Copyright (c) 2015-2024 NVIDIA Corporation
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to
@@ -28,6 +28,7 @@
 #include "uvm_lock.h"
 #include "uvm_test.h"
 #include "uvm_va_space.h"
+#include "uvm_va_space_mm.h"
 #include "uvm_va_range.h"
 #include "uvm_va_block.h"
 #include "uvm_tools.h"
@@ -35,93 +36,196 @@
 #include "uvm_linux_ioctl.h"
 #include "uvm_hmm.h"
 #include "uvm_mem.h"
+#include "uvm_kvmalloc.h"
 
 #define NVIDIA_UVM_DEVICE_NAME          "nvidia-uvm"
 
 static dev_t g_uvm_base_dev;
 static struct cdev g_uvm_cdev;
+static const struct file_operations uvm_fops;
 
-// List of fault service contexts for CPU faults
-static LIST_HEAD(g_cpu_service_block_context_list);
-
-static uvm_spinlock_t g_cpu_service_block_context_list_lock;
-
-NV_STATUS uvm_service_block_context_init(void)
+bool uvm_file_is_nvidia_uvm(struct file *filp)
 {
-    unsigned num_preallocated_contexts = 4;
+    return (filp != NULL) && (filp->f_op == &uvm_fops);
+}
 
-    uvm_spin_lock_init(&g_cpu_service_block_context_list_lock, UVM_LOCK_ORDER_LEAF);
+uvm_fd_type_t uvm_fd_type(struct file *filp, void **ptr_val)
+{
+    unsigned long uptr;
+    uvm_fd_type_t type;
+    void *ptr;
 
-    // Pre-allocate some fault service contexts for the CPU and add them to the global list
-    while (num_preallocated_contexts-- > 0) {
-        uvm_service_block_context_t *service_context = uvm_kvmalloc(sizeof(*service_context));
-        if (!service_context)
-            return NV_ERR_NO_MEMORY;
+    UVM_ASSERT(uvm_file_is_nvidia_uvm(filp));
 
-        list_add(&service_context->cpu_fault.service_context_list, &g_cpu_service_block_context_list);
+    uptr = atomic_long_read_acquire((atomic_long_t *) (&filp->private_data));
+    type = (uvm_fd_type_t)(uptr & UVM_FD_TYPE_MASK);
+    ptr = (void *)(uptr & ~UVM_FD_TYPE_MASK);
+    BUILD_BUG_ON(UVM_FD_COUNT > UVM_FD_TYPE_MASK + 1);
+
+    switch (type) {
+        case UVM_FD_UNINITIALIZED:
+        case UVM_FD_INITIALIZING:
+            UVM_ASSERT(!ptr);
+            break;
+
+        case UVM_FD_VA_SPACE:
+            UVM_ASSERT(ptr);
+            BUILD_BUG_ON(__alignof__(uvm_va_space_t) < (1UL << UVM_FD_TYPE_BITS));
+            break;
+
+        case UVM_FD_MM:
+            UVM_ASSERT(ptr);
+            BUILD_BUG_ON(__alignof__(struct file) < (1UL << UVM_FD_TYPE_BITS));
+            break;
+
+        default:
+            UVM_ASSERT(0);
     }
+
+    if (ptr_val)
+        *ptr_val = ptr;
+
+    return type;
+}
+
+void *uvm_fd_get_type(struct file *filp, uvm_fd_type_t type)
+{
+    void *ptr;
+
+    UVM_ASSERT(uvm_file_is_nvidia_uvm(filp));
+
+    if (uvm_fd_type(filp, &ptr) == type)
+        return ptr;
+    else
+        return NULL;
+}
+
+static NV_STATUS uvm_api_mm_initialize(UVM_MM_INITIALIZE_PARAMS *params, struct file *filp)
+{
+    uvm_va_space_t *va_space;
+    uvm_va_space_mm_t *va_space_mm;
+    struct file *uvm_file;
+    uvm_fd_type_t old_fd_type;
+    struct mm_struct *mm;
+    NV_STATUS status;
+
+    uvm_file = fget(params->uvmFd);
+    if (!uvm_file_is_nvidia_uvm(uvm_file)) {
+        status = NV_ERR_INVALID_ARGUMENT;
+        goto err;
+    }
+
+    if (uvm_fd_type(uvm_file, (void **)&va_space) != UVM_FD_VA_SPACE) {
+        status = NV_ERR_INVALID_ARGUMENT;
+        goto err;
+    }
+
+    // Tell userspace the MM FD is not required and it may be released
+    // with no loss of functionality.
+    if (!uvm_va_space_mm_enabled(va_space)) {
+        status = NV_WARN_NOTHING_TO_DO;
+        goto err;
+    }
+
+    old_fd_type = atomic_long_cmpxchg((atomic_long_t *)&filp->private_data,
+                                      UVM_FD_UNINITIALIZED,
+                                      UVM_FD_INITIALIZING);
+    old_fd_type &= UVM_FD_TYPE_MASK;
+    if (old_fd_type != UVM_FD_UNINITIALIZED) {
+        status = NV_ERR_IN_USE;
+        goto err;
+    }
+
+    va_space_mm = &va_space->va_space_mm;
+    uvm_spin_lock(&va_space_mm->lock);
+    switch (va_space->va_space_mm.state) {
+        // We only allow the va_space_mm to be initialised once. If
+        // userspace passed the UVM FD to another process it is up to
+        // userspace to ensure it also passes the UVM MM FD that
+        // initialised the va_space_mm or arranges some other way to keep
+        // a reference on the FD.
+        case UVM_VA_SPACE_MM_STATE_ALIVE:
+            status = NV_ERR_INVALID_STATE;
+            goto err_release_unlock;
+            break;
+
+        // Once userspace has released the va_space_mm the GPU is
+        // effectively dead and no new work can be started. We don't
+        // support re-initializing once userspace has closed the FD.
+        case UVM_VA_SPACE_MM_STATE_RELEASED:
+            status = NV_ERR_PAGE_TABLE_NOT_AVAIL;
+            goto err_release_unlock;
+            break;
+
+        // Keep the warnings at bay
+        case UVM_VA_SPACE_MM_STATE_UNINITIALIZED:
+            mm = va_space->va_space_mm.mm;
+            if (!mm || !mmget_not_zero(mm)) {
+                status = NV_ERR_PAGE_TABLE_NOT_AVAIL;
+                goto err_release_unlock;
+            }
+
+            va_space_mm->state = UVM_VA_SPACE_MM_STATE_ALIVE;
+            break;
+
+        default:
+            UVM_ASSERT(0);
+            break;
+    }
+    uvm_spin_unlock(&va_space_mm->lock);
+    atomic_long_set_release((atomic_long_t *)&filp->private_data, (long)uvm_file | UVM_FD_MM);
 
     return NV_OK;
+
+err_release_unlock:
+    uvm_spin_unlock(&va_space_mm->lock);
+    atomic_long_set_release((atomic_long_t *)&filp->private_data, UVM_FD_UNINITIALIZED);
+
+err:
+    if (uvm_file)
+        fput(uvm_file);
+
+    return status;
 }
 
-void uvm_service_block_context_exit(void)
-{
-    uvm_service_block_context_t *service_context, *service_context_tmp;
-
-    // Free fault service contexts for the CPU and add clear the global list
-    list_for_each_entry_safe(service_context, service_context_tmp, &g_cpu_service_block_context_list,
-                             cpu_fault.service_context_list) {
-        uvm_kvfree(service_context);
-    }
-    INIT_LIST_HEAD(&g_cpu_service_block_context_list);
-}
-
-// Get a fault service context from the global list or allocate a new one if there are no
-// available entries
-static uvm_service_block_context_t *uvm_service_block_context_cpu_alloc(void)
-{
-    uvm_service_block_context_t *service_context;
-
-    uvm_spin_lock(&g_cpu_service_block_context_list_lock);
-
-    service_context = list_first_entry_or_null(&g_cpu_service_block_context_list, uvm_service_block_context_t,
-                                               cpu_fault.service_context_list);
-
-    if (service_context)
-        list_del(&service_context->cpu_fault.service_context_list);
-
-    uvm_spin_unlock(&g_cpu_service_block_context_list_lock);
-
-    if (!service_context)
-        service_context = uvm_kvmalloc(sizeof(*service_context));
-
-    return service_context;
-}
-
-// Put a fault service context in the global list
-static void uvm_service_block_context_cpu_free(uvm_service_block_context_t *service_context)
-{
-    uvm_spin_lock(&g_cpu_service_block_context_list_lock);
-
-    list_add(&service_context->cpu_fault.service_context_list, &g_cpu_service_block_context_list);
-
-    uvm_spin_unlock(&g_cpu_service_block_context_list_lock);
-}
-
+// Called when opening /dev/nvidia-uvm. This code doesn't take any UVM locks, so
+// there's no need to acquire g_uvm_global.pm.lock, but if that changes the PM
+// lock will need to be taken.
 static int uvm_open(struct inode *inode, struct file *filp)
 {
+    struct address_space *mapping;
     NV_STATUS status = uvm_global_get_status();
 
-    if (status == NV_OK) {
-        if (!uvm_down_read_trylock(&g_uvm_global.pm.lock))
-            return -EAGAIN;
+    if (status != NV_OK)
+        return -nv_status_to_errno(status);
 
-        status = uvm_va_space_create(inode, filp);
+    mapping = uvm_kvmalloc(sizeof(*mapping));
+    if (!mapping)
+        return -ENOMEM;
 
-        uvm_up_read(&g_uvm_global.pm.lock);
-    }
+    // By default all struct files on the same inode share the same
+    // address_space structure (the inode's) across all processes. This means
+    // unmap_mapping_range would unmap virtual mappings across all processes on
+    // that inode.
+    //
+    // Since the UVM driver uses the mapping offset as the VA of the file's
+    // process, we need to isolate the mappings to each process.
+    address_space_init_once(mapping);
+    mapping->host = inode;
 
-    return -nv_status_to_errno(status);
+    // Some paths in the kernel, for example force_page_cache_readahead which
+    // can be invoked from user-space via madvise MADV_WILLNEED and fadvise
+    // POSIX_FADV_WILLNEED, check the function pointers within
+    // file->f_mapping->a_ops for validity. However, those paths assume that a_ops
+    // itself is always valid. Handle that by using the inode's a_ops pointer,
+    // which is what f_mapping->a_ops would point to anyway if we weren't re-
+    // assigning f_mapping.
+    mapping->a_ops = inode->i_mapping->a_ops;
+
+    filp->private_data = NULL;
+    filp->f_mapping = mapping;
+
+    return NV_OK;
 }
 
 static int uvm_open_entry(struct inode *inode, struct file *filp)
@@ -136,7 +240,7 @@ static void uvm_release_deferred(void *data)
     // Since this function is only scheduled to run when uvm_release() fails
     // to trylock-acquire the pm.lock, the following acquisition attempt
     // is expected to block this thread, and cause it to remain blocked until
-    // uvm_resume() releases the lock.  As a result, the deferred release
+    // uvm_resume() releases the lock. As a result, the deferred release
     // kthread queue may stall for long periods of time.
     uvm_down_read(&g_uvm_global.pm.lock);
 
@@ -145,29 +249,62 @@ static void uvm_release_deferred(void *data)
     uvm_up_read(&g_uvm_global.pm.lock);
 }
 
+static void uvm_mm_release(struct file *filp, struct file *uvm_file)
+{
+    uvm_va_space_t *va_space = uvm_va_space_get(uvm_file);
+    uvm_va_space_mm_t *va_space_mm = &va_space->va_space_mm;
+    struct mm_struct *mm = va_space_mm->mm;
+
+    if (uvm_va_space_mm_enabled(va_space)) {
+        uvm_va_space_mm_unregister(va_space);
+
+        if (uvm_va_space_mm_enabled(va_space))
+            uvm_mmput(mm);
+
+        va_space_mm->mm = NULL;
+        fput(uvm_file);
+    }
+}
+
 static int uvm_release(struct inode *inode, struct file *filp)
 {
-    uvm_va_space_t *va_space = uvm_va_space_get(filp);
+    void *ptr;
+    uvm_va_space_t *va_space;
+    uvm_fd_type_t fd_type;
     int ret;
 
+    fd_type = uvm_fd_type(filp, &ptr);
+    UVM_ASSERT(fd_type != UVM_FD_INITIALIZING);
+    if (fd_type == UVM_FD_UNINITIALIZED) {
+        uvm_kvfree(filp->f_mapping);
+        return 0;
+    }
+    else if (fd_type == UVM_FD_MM) {
+        uvm_kvfree(filp->f_mapping);
+        uvm_mm_release(filp, (struct file *)ptr);
+        return 0;
+    }
+
+    UVM_ASSERT(fd_type == UVM_FD_VA_SPACE);
+    va_space = (uvm_va_space_t *)ptr;
     filp->private_data = NULL;
     filp->f_mapping = NULL;
 
     // Because the kernel discards the status code returned from this release
     // callback, early exit in case of a pm.lock acquisition failure is not
-    // an option.  Instead, the teardown work normally performed synchronously
+    // an option. Instead, the teardown work normally performed synchronously
     // needs to be scheduled to run after uvm_resume() releases the lock.
     if (uvm_down_read_trylock(&g_uvm_global.pm.lock)) {
         uvm_va_space_destroy(va_space);
         uvm_up_read(&g_uvm_global.pm.lock);
     }
     else {
-        // Remove references to this inode from the address_space.  This isn't
+        // Remove references to this inode from the address_space. This isn't
         // strictly necessary, as any CPU mappings of this file have already
         // been destroyed, and va_space->mapping won't be used again. Still,
         // the va_space survives the inode if its destruction is deferred, in
         // which case the references are rendered stale.
-        address_space_init_once(&va_space->mapping);
+        address_space_init_once(va_space->mapping);
 
         nv_kthread_q_item_init(&va_space->deferred_release_q_item, uvm_release_deferred, va_space);
         ret = nv_kthread_q_schedule_q_item(&g_uvm_global.deferred_release_q, &va_space->deferred_release_q_item);
@@ -184,21 +321,21 @@ static int uvm_release_entry(struct inode *inode, struct file *filp)
 
 static void uvm_destroy_vma_managed(struct vm_area_struct *vma, bool make_zombie)
 {
-    uvm_va_range_t *va_range, *va_range_next;
+    uvm_va_range_managed_t *managed_range, *managed_range_next;
     NvU64 size = 0;
 
     uvm_assert_rwsem_locked_write(&uvm_va_space_get(vma->vm_file)->lock);
-    uvm_for_each_va_range_in_vma_safe(va_range, va_range_next, vma) {
+    uvm_for_each_va_range_managed_in_vma_safe(managed_range, managed_range_next, vma) {
         // On exit_mmap (process teardown), current->mm is cleared so
         // uvm_va_range_vma_current would return NULL.
-        UVM_ASSERT(uvm_va_range_vma(va_range) == vma);
-        UVM_ASSERT(va_range->node.start >= vma->vm_start);
-        UVM_ASSERT(va_range->node.end   <  vma->vm_end);
-        size += uvm_va_range_size(va_range);
+        UVM_ASSERT(uvm_va_range_vma(managed_range) == vma);
+        UVM_ASSERT(managed_range->va_range.node.start >= vma->vm_start);
+        UVM_ASSERT(managed_range->va_range.node.end   <  vma->vm_end);
+        size += uvm_va_range_size(&managed_range->va_range);
         if (make_zombie)
-            uvm_va_range_zombify(va_range);
+            uvm_va_range_zombify(managed_range);
         else
-            uvm_va_range_destroy(va_range, NULL);
+            uvm_va_range_destroy(&managed_range->va_range, NULL);
     }
 
     if (vma->vm_private_data) {
@@ -210,18 +347,17 @@ static void uvm_destroy_vma_managed(struct vm_area_struct *vma, bool make_zombie
 
 static void uvm_destroy_vma_semaphore_pool(struct vm_area_struct *vma)
 {
+    uvm_va_range_semaphore_pool_t *semaphore_pool_range;
     uvm_va_space_t *va_space;
-    uvm_va_range_t *va_range;
 
     va_space = uvm_va_space_get(vma->vm_file);
     uvm_assert_rwsem_locked(&va_space->lock);
-    va_range = uvm_va_range_find(va_space, vma->vm_start);
-    UVM_ASSERT(va_range &&
-               va_range->node.start   == vma->vm_start &&
-               va_range->node.end + 1 == vma->vm_end &&
-               va_range->type == UVM_VA_RANGE_TYPE_SEMAPHORE_POOL);
+    semaphore_pool_range = uvm_va_range_semaphore_pool_find(va_space, vma->vm_start);
+    UVM_ASSERT(semaphore_pool_range &&
+               semaphore_pool_range->va_range.node.start   == vma->vm_start &&
+               semaphore_pool_range->va_range.node.end + 1 == vma->vm_end);
 
-    uvm_mem_unmap_cpu_user(va_range->semaphore_pool.mem);
+    uvm_mem_unmap_cpu_user(semaphore_pool_range->mem);
 }
 
 // If a fault handler is not set, paths like handle_pte_fault in older kernels
@@ -337,7 +473,7 @@ static void uvm_vm_open_failure(struct vm_area_struct *original,
 static void uvm_vm_open_managed(struct vm_area_struct *vma)
 {
     uvm_va_space_t *va_space = uvm_va_space_get(vma->vm_file);
-    uvm_va_range_t *va_range;
+    uvm_va_range_managed_t *managed_range;
     struct vm_area_struct *original;
     NV_STATUS status;
     NvU64 new_end;
@@ -393,13 +529,13 @@ static void uvm_vm_open_managed(struct vm_area_struct *vma)
         goto out;
     }
 
-    // There can be multiple va_ranges under the vma already. Check if one spans
+    // There can be multiple ranges under the vma already. Check if one spans
     // the new split boundary. If so, split it.
-    va_range = uvm_va_range_find(va_space, new_end);
-    UVM_ASSERT(va_range);
-    UVM_ASSERT(uvm_va_range_vma_current(va_range) == original);
-    if (va_range->node.end != new_end) {
-        status = uvm_va_range_split(va_range, new_end, NULL);
+    managed_range = uvm_va_range_managed_find(va_space, new_end);
+    UVM_ASSERT(managed_range);
+    UVM_ASSERT(uvm_va_range_vma_current(managed_range) == original);
+    if (managed_range->va_range.node.end != new_end) {
+        status = uvm_va_range_split(managed_range, new_end, NULL);
         if (status != NV_OK) {
             UVM_DBG_PRINT("Failed to split VA range, destroying both: %s. "
                           "original vma [0x%lx, 0x%lx) new vma [0x%lx, 0x%lx)\n",
@@ -411,10 +547,10 @@ static void uvm_vm_open_managed(struct vm_area_struct *vma)
         }
     }
 
-    // Point va_ranges to the new vma
-    uvm_for_each_va_range_in_vma(va_range, vma) {
-        UVM_ASSERT(uvm_va_range_vma_current(va_range) == original);
-        va_range->managed.vma_wrapper = vma->vm_private_data;
+    // Point managed_ranges to the new vma
+    uvm_for_each_va_range_managed_in_vma(managed_range, vma) {
+        UVM_ASSERT(uvm_va_range_vma_current(managed_range) == original);
+        managed_range->vma_wrapper = vma->vm_private_data;
     }
 
 out:
@@ -430,13 +566,10 @@ static void uvm_vm_open_managed_entry(struct vm_area_struct *vma)
 static void uvm_vm_close_managed(struct vm_area_struct *vma)
 {
     uvm_va_space_t *va_space = uvm_va_space_get(vma->vm_file);
-    uvm_gpu_t *gpu;
     bool make_zombie = false;
 
     if (current->mm != NULL)
         uvm_record_lock_mmap_lock_write(current->mm);
-
-    UVM_ASSERT(uvm_va_space_initialized(va_space) == NV_OK);
 
     // current->mm will be NULL on process teardown, in which case we have
     // special handling.
@@ -467,14 +600,6 @@ static void uvm_vm_close_managed(struct vm_area_struct *vma)
 
     uvm_destroy_vma_managed(vma, make_zombie);
 
-    // Notify GPU address spaces that the fault buffer needs to be flushed to avoid finding stale entries
-    // that can be attributed to new VA ranges reallocated at the same address
-    for_each_va_space_gpu_in_mask(gpu, va_space, &va_space->registered_gpu_va_spaces) {
-        uvm_gpu_va_space_t *gpu_va_space = uvm_gpu_va_space_get(va_space, gpu);
-        UVM_ASSERT(gpu_va_space);
-
-        gpu_va_space->needs_fault_buffer_flush = true;
-    }
     uvm_va_space_up_write(va_space);
 
     if (current->mm != NULL)
@@ -489,138 +614,9 @@ static void uvm_vm_close_managed_entry(struct vm_area_struct *vma)
 static vm_fault_t uvm_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
     uvm_va_space_t *va_space = uvm_va_space_get(vma->vm_file);
-    uvm_va_block_t *va_block;
-    NvU64 fault_addr = nv_page_fault_va(vmf);
-    bool is_write = vmf->flags & FAULT_FLAG_WRITE;
-    NV_STATUS status = uvm_global_get_status();
-    bool tools_enabled;
-    bool major_fault = false;
-    uvm_service_block_context_t *service_context;
-    uvm_global_processor_mask_t gpus_to_check_for_ecc;
 
-    if (status != NV_OK)
-        goto convert_error;
-
-    // TODO: Bug 2583279: Lock tracking is disabled for the power management
-    // lock in order to suppress reporting of a lock policy violation.
-    // The violation consists in acquiring the power management lock multiple
-    // times, and it is manifested as an error during release. The
-    // re-acquisition of the power management locks happens upon re-entry in the
-    // UVM module, and it is benign on itself, but when combined with certain
-    // power management scenarios, it is indicative of a potential deadlock.
-    // Tracking will be re-enabled once the power management locking strategy is
-    // modified to avoid deadlocks.
-    if (!uvm_down_read_trylock_no_tracking(&g_uvm_global.pm.lock)) {
-        status = NV_ERR_BUSY_RETRY;
-        goto convert_error;
-    }
-
-    service_context = uvm_service_block_context_cpu_alloc();
-    if (!service_context) {
-        status = NV_ERR_NO_MEMORY;
-        goto unlock;
-    }
-
-    service_context->cpu_fault.wakeup_time_stamp = 0;
-
-    // The mmap_lock might be held in write mode, but the mode doesn't matter
-    // for the purpose of lock ordering and we don't rely on it being in write
-    // anywhere so just record it as read mode in all cases.
-    uvm_record_lock_mmap_lock_read(vma->vm_mm);
-
-    do {
-        bool do_sleep = false;
-        if (status == NV_WARN_MORE_PROCESSING_REQUIRED) {
-            NvU64 now = NV_GETTIME();
-            if (now < service_context->cpu_fault.wakeup_time_stamp)
-                do_sleep = true;
-
-            if (do_sleep)
-                uvm_tools_record_throttling_start(va_space, fault_addr, UVM_ID_CPU);
-
-            // Drop the VA space lock while we sleep
-            uvm_va_space_up_read(va_space);
-
-            // usleep_range is preferred because msleep has a 20ms granularity
-            // and udelay uses a busy-wait loop. usleep_range uses high-resolution
-            // timers and, by adding a range, the Linux scheduler may coalesce
-            // our wakeup with others, thus saving some interrupts.
-            if (do_sleep) {
-                unsigned long nap_us = (service_context->cpu_fault.wakeup_time_stamp - now) / 1000;
-
-                usleep_range(nap_us, nap_us + nap_us / 2);
-            }
-        }
-
-        uvm_va_space_down_read(va_space);
-
-        if (do_sleep)
-            uvm_tools_record_throttling_end(va_space, fault_addr, UVM_ID_CPU);
-
-        status = uvm_va_block_find_create_managed(va_space, fault_addr, &va_block);
-        if (status != NV_OK) {
-            UVM_ASSERT_MSG(status == NV_ERR_NO_MEMORY, "status: %s\n", nvstatusToString(status));
-            break;
-        }
-
-        // Watch out, current->mm might not be vma->vm_mm
-        UVM_ASSERT(vma == uvm_va_range_vma(va_block->va_range));
-
-        // Loop until thrashing goes away.
-        status = uvm_va_block_cpu_fault(va_block, fault_addr, is_write, service_context);
-    } while (status == NV_WARN_MORE_PROCESSING_REQUIRED);
-
-    if (status != NV_OK) {
-        UvmEventFatalReason reason;
-
-        reason = uvm_tools_status_to_fatal_fault_reason(status);
-        UVM_ASSERT(reason != UvmEventFatalReasonInvalid);
-
-        uvm_tools_record_cpu_fatal_fault(va_space, fault_addr, is_write, reason);
-    }
-
-    tools_enabled = va_space->tools.enabled;
-
-    if (status == NV_OK) {
-        uvm_va_space_global_gpus_in_mask(va_space,
-                                         &gpus_to_check_for_ecc,
-                                         &service_context->cpu_fault.gpus_to_check_for_ecc);
-        uvm_global_mask_retain(&gpus_to_check_for_ecc);
-    }
-
-    uvm_va_space_up_read(va_space);
-    uvm_record_unlock_mmap_lock_read(vma->vm_mm);
-
-    if (status == NV_OK) {
-        status = uvm_global_mask_check_ecc_error(&gpus_to_check_for_ecc);
-        uvm_global_mask_release(&gpus_to_check_for_ecc);
-    }
-
-    if (tools_enabled)
-        uvm_tools_flush_events();
-
-    // Major faults involve I/O in order to resolve the fault.
-    // If any pages were DMA'ed between the GPU and host memory, that makes it a major fault.
-    // A process can also get statistics for major and minor faults by calling readproc().
-    major_fault = service_context->cpu_fault.did_migrate;
-    uvm_service_block_context_cpu_free(service_context);
-
-unlock:
-    // TODO: Bug 2583279: See the comment above the matching lock acquisition
-    uvm_up_read_no_tracking(&g_uvm_global.pm.lock);
-
-convert_error:
-    switch (status) {
-        case NV_OK:
-        case NV_ERR_BUSY_RETRY:
-            return VM_FAULT_NOPAGE | (major_fault ? VM_FAULT_MAJOR : 0);
-        case NV_ERR_NO_MEMORY:
-            return VM_FAULT_OOM;
-        default:
-            return VM_FAULT_SIGBUS;
-    }
+    return uvm_va_space_cpu_fault_managed(va_space, vma, vmf);
 }
-
 
 static vm_fault_t uvm_vm_fault_entry(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
@@ -656,12 +652,12 @@ static struct vm_operations_struct uvm_vm_ops_managed =
 };
 
 // vm operations on semaphore pool allocations only control CPU mappings. Unmapping GPUs,
-// freeing the allocation, and destroying the va_range are handled by UVM_FREE.
+// freeing the allocation, and destroying the range are handled by UVM_FREE.
 static void uvm_vm_open_semaphore_pool(struct vm_area_struct *vma)
 {
     struct vm_area_struct *origin_vma = (struct vm_area_struct *)vma->vm_private_data;
     uvm_va_space_t *va_space = uvm_va_space_get(origin_vma->vm_file);
-    uvm_va_range_t *va_range;
+    uvm_va_range_semaphore_pool_t *semaphore_pool_range;
     bool is_fork = (vma->vm_mm != origin_vma->vm_mm);
     NV_STATUS status;
 
@@ -669,18 +665,24 @@ static void uvm_vm_open_semaphore_pool(struct vm_area_struct *vma)
 
     uvm_va_space_down_write(va_space);
 
-    va_range = uvm_va_range_find(va_space, origin_vma->vm_start);
-    UVM_ASSERT(va_range);
-    UVM_ASSERT_MSG(va_range->type == UVM_VA_RANGE_TYPE_SEMAPHORE_POOL &&
-                   va_range->node.start == origin_vma->vm_start &&
-                   va_range->node.end + 1 == origin_vma->vm_end,
+    semaphore_pool_range = uvm_va_range_semaphore_pool_find(va_space, origin_vma->vm_start);
+    UVM_ASSERT(semaphore_pool_range);
+    UVM_ASSERT_MSG(semaphore_pool_range &&
+                   semaphore_pool_range->va_range.node.start == origin_vma->vm_start &&
+                   semaphore_pool_range->va_range.node.end + 1 == origin_vma->vm_end,
                    "origin vma [0x%llx, 0x%llx); va_range [0x%llx, 0x%llx) type %d\n",
-                   (NvU64)origin_vma->vm_start, (NvU64)origin_vma->vm_end, va_range->node.start,
-                   va_range->node.end + 1, va_range->type);
+                   (NvU64)origin_vma->vm_start,
+                   (NvU64)origin_vma->vm_end,
+                   semaphore_pool_range->va_range.node.start,
+                   semaphore_pool_range->va_range.node.end + 1,
+                   semaphore_pool_range->va_range.type);
 
     // Semaphore pool vmas do not have vma wrappers, but some functions will
     // assume vm_private_data is a wrapper.
     vma->vm_private_data = NULL;
+#if defined(VM_WIPEONFORK)
+    nv_vm_flags_set(vma, VM_WIPEONFORK);
+#endif
 
     if (is_fork) {
         // If we forked, leave the parent vma alone.
@@ -688,9 +690,9 @@ static void uvm_vm_open_semaphore_pool(struct vm_area_struct *vma)
 
         // uvm_disable_vma unmaps in the parent as well; clear the uvm_mem CPU
         // user mapping metadata and then remap.
-        uvm_mem_unmap_cpu_user(va_range->semaphore_pool.mem);
+        uvm_mem_unmap_cpu_user(semaphore_pool_range->mem);
 
-        status = uvm_mem_map_cpu_user(va_range->semaphore_pool.mem, va_range->va_space, origin_vma);
+        status = uvm_mem_map_cpu_user(semaphore_pool_range->mem, semaphore_pool_range->va_range.va_space, origin_vma);
         if (status != NV_OK) {
             UVM_DBG_PRINT("Failed to remap semaphore pool to CPU for parent after fork; status = %d (%s)",
                     status, nvstatusToString(status));
@@ -701,7 +703,7 @@ static void uvm_vm_open_semaphore_pool(struct vm_area_struct *vma)
         origin_vma->vm_private_data = NULL;
         origin_vma->vm_ops = &uvm_vm_ops_disabled;
         vma->vm_ops = &uvm_vm_ops_disabled;
-        uvm_mem_unmap_cpu_user(va_range->semaphore_pool.mem);
+        uvm_mem_unmap_cpu_user(semaphore_pool_range->mem);
     }
 
     uvm_va_space_up_write(va_space);
@@ -750,10 +752,84 @@ static struct vm_operations_struct uvm_vm_ops_semaphore_pool =
 #endif
 };
 
+static void uvm_vm_open_device_p2p(struct vm_area_struct *vma)
+{
+    struct vm_area_struct *origin_vma = (struct vm_area_struct *)vma->vm_private_data;
+    uvm_va_space_t *va_space = uvm_va_space_get(origin_vma->vm_file);
+    uvm_va_range_t *va_range;
+    bool is_fork = (vma->vm_mm != origin_vma->vm_mm);
+
+    uvm_record_lock_mmap_lock_write(current->mm);
+
+    uvm_va_space_down_write(va_space);
+
+    va_range = uvm_va_range_find(va_space, origin_vma->vm_start);
+    UVM_ASSERT(va_range);
+    UVM_ASSERT_MSG(va_range->type == UVM_VA_RANGE_TYPE_DEVICE_P2P &&
+                   va_range->node.start == origin_vma->vm_start &&
+                   va_range->node.end + 1 == origin_vma->vm_end,
+                   "origin vma [0x%llx, 0x%llx); va_range [0x%llx, 0x%llx) type %d\n",
+                   (NvU64)origin_vma->vm_start, (NvU64)origin_vma->vm_end, va_range->node.start,
+                   va_range->node.end + 1, va_range->type);
+
+    // Device P2P vmas do not have vma wrappers, but some functions will
+    // assume vm_private_data is a wrapper.
+    vma->vm_private_data = NULL;
+#if defined(VM_WIPEONFORK)
+    nv_vm_flags_set(vma, VM_WIPEONFORK);
+#endif
+
+    if (is_fork) {
+        // If we forked, leave the parent vma alone.
+        uvm_disable_vma(vma);
+
+        // uvm_disable_vma unmaps in the parent as well so remap the parent
+        uvm_va_range_device_p2p_map_cpu(va_range->va_space, origin_vma, uvm_va_range_to_device_p2p(va_range));
+    }
+    else {
+        // mremap will free the backing pages via unmap so we can't support it.
+        origin_vma->vm_private_data = NULL;
+        origin_vma->vm_ops = &uvm_vm_ops_disabled;
+        vma->vm_ops = &uvm_vm_ops_disabled;
+        unmap_mapping_range(va_space->mapping, va_range->node.start, va_range->node.end - va_range->node.start + 1, 1);
+    }
+
+    uvm_va_space_up_write(va_space);
+
+    uvm_record_unlock_mmap_lock_write(current->mm);
+}
+
+static void uvm_vm_open_device_p2p_entry(struct vm_area_struct *vma)
+{
+    UVM_ENTRY_VOID(uvm_vm_open_device_p2p(vma));
+}
+
+// Device P2P pages are only mapped on the CPU. Pages are allocated externally
+// to UVM but destroying the range must unpin the RM object.
+static void uvm_vm_close_device_p2p(struct vm_area_struct *vma)
+{
+}
+
+static void uvm_vm_close_device_p2p_entry(struct vm_area_struct *vma)
+{
+    UVM_ENTRY_VOID(uvm_vm_close_device_p2p(vma));
+}
+
+static struct vm_operations_struct uvm_vm_ops_device_p2p =
+{
+    .open         = uvm_vm_open_device_p2p_entry,
+    .close        = uvm_vm_close_device_p2p_entry,
+
+#if defined(NV_VM_OPS_FAULT_REMOVED_VMA_ARG)
+    .fault        = uvm_vm_fault_sigbus_wrapper_entry,
+#else
+    .fault        = uvm_vm_fault_sigbus_entry,
+#endif
+};
+
 static int uvm_mmap(struct file *filp, struct vm_area_struct *vma)
 {
-    uvm_va_space_t *va_space = uvm_va_space_get(filp);
-    uvm_va_range_t *va_range;
+    uvm_va_space_t *va_space;
     NV_STATUS status = uvm_global_get_status();
     int ret = 0;
     bool vma_wrapper_allocated = false;
@@ -761,8 +837,8 @@ static int uvm_mmap(struct file *filp, struct vm_area_struct *vma)
     if (status != NV_OK)
         return -nv_status_to_errno(status);
 
-    status = uvm_va_space_initialized(va_space);
-    if (status != NV_OK)
+    va_space = uvm_fd_va_space(filp);
+    if (!va_space)
         return -EBADFD;
 
     // When the VA space is associated with an mm, all vmas under the VA space
@@ -791,8 +867,8 @@ static int uvm_mmap(struct file *filp, struct vm_area_struct *vma)
     }
 
     // If the PM lock cannot be acquired, disable the VMA and report success
-    // to the caller.  The caller is expected to determine whether the
-    // map operation succeeded via an ioctl() call.  This is necessary to
+    // to the caller. The caller is expected to determine whether the
+    // map operation succeeded via an ioctl() call. This is necessary to
     // safely handle MAP_FIXED, which needs to complete atomically to prevent
     // the loss of the virtual address range.
     if (!uvm_down_read_trylock(&g_uvm_global.pm.lock)) {
@@ -814,7 +890,11 @@ static int uvm_mmap(struct file *filp, struct vm_area_struct *vma)
     // Using VM_DONTCOPY would be nice, but madvise(MADV_DOFORK) can reset that
     // so we have to handle vm_open on fork anyway. We could disable MADV_DOFORK
     // with VM_IO, but that causes other mapping issues.
-    vma->vm_flags |= VM_MIXEDMAP | VM_DONTEXPAND;
+    // Make the default behavior be VM_DONTCOPY to avoid the performance impact
+    // of removing CPU mappings in the parent on fork()+exec(). Users can call
+    // madvise(MDV_DOFORK) if the child process requires access to the
+    // allocation.
+    nv_vm_flags_set(vma, VM_MIXEDMAP | VM_DONTEXPAND | VM_DONTCOPY);
 
     vma->vm_ops = &uvm_vm_ops_managed;
 
@@ -840,18 +920,28 @@ static int uvm_mmap(struct file *filp, struct vm_area_struct *vma)
     status = uvm_va_range_create_mmap(va_space, current->mm, vma->vm_private_data, NULL);
 
     if (status == NV_ERR_UVM_ADDRESS_IN_USE) {
+        uvm_va_range_semaphore_pool_t *semaphore_pool_range;
+        uvm_va_range_device_p2p_t *device_p2p_range;
         // If the mmap is for a semaphore pool, the VA range will have been
         // allocated by a previous ioctl, and the mmap just creates the CPU
         // mapping.
-        va_range = uvm_va_range_find(va_space, vma->vm_start);
-        if (va_range && va_range->node.start == vma->vm_start &&
-                va_range->node.end + 1 == vma->vm_end &&
-                va_range->type == UVM_VA_RANGE_TYPE_SEMAPHORE_POOL) {
+        semaphore_pool_range = uvm_va_range_semaphore_pool_find(va_space, vma->vm_start);
+        device_p2p_range = uvm_va_range_device_p2p_find(va_space, vma->vm_start);
+        if (semaphore_pool_range && semaphore_pool_range->va_range.node.start == vma->vm_start &&
+                semaphore_pool_range->va_range.node.end + 1 == vma->vm_end) {
             uvm_vma_wrapper_destroy(vma->vm_private_data);
             vma_wrapper_allocated = false;
             vma->vm_private_data = vma;
             vma->vm_ops = &uvm_vm_ops_semaphore_pool;
-            status = uvm_mem_map_cpu_user(va_range->semaphore_pool.mem, va_range->va_space, vma);
+            status = uvm_mem_map_cpu_user(semaphore_pool_range->mem, semaphore_pool_range->va_range.va_space, vma);
+        }
+        else if (device_p2p_range && device_p2p_range->va_range.node.start == vma->vm_start &&
+                 device_p2p_range->va_range.node.end + 1 == vma->vm_end) {
+            uvm_vma_wrapper_destroy(vma->vm_private_data);
+            vma_wrapper_allocated = false;
+            vma->vm_private_data = vma;
+            vma->vm_ops = &uvm_vm_ops_device_p2p;
+            status = uvm_va_range_device_p2p_map_cpu(va_space, vma, device_p2p_range);
         }
     }
 
@@ -874,6 +964,13 @@ out:
     return ret;
 }
 
+bool uvm_vma_is_managed(struct vm_area_struct *vma)
+{
+    return vma->vm_ops == &uvm_vm_ops_disabled ||
+           vma->vm_ops == &uvm_vm_ops_managed ||
+           vma->vm_ops == &uvm_vm_ops_semaphore_pool;
+}
+
 static int uvm_mmap_entry(struct file *filp, struct vm_area_struct *vma)
 {
    UVM_ENTRY_RET(uvm_mmap(filp, vma));
@@ -881,7 +978,57 @@ static int uvm_mmap_entry(struct file *filp, struct vm_area_struct *vma)
 
 static NV_STATUS uvm_api_initialize(UVM_INITIALIZE_PARAMS *params, struct file *filp)
 {
-    return uvm_va_space_initialize(uvm_va_space_get(filp), params->flags);
+    uvm_va_space_t *va_space;
+    NV_STATUS status;
+    uvm_fd_type_t old_fd_type;
+
+    // Normally we expect private_data == UVM_FD_UNINITIALIZED. However multiple
+    // threads may call this ioctl concurrently so we have to be careful to
+    // avoid initializing multiple va_spaces and/or leaking memory. To do this
+    // we do an atomic compare and swap. Only one thread will observe
+    // UVM_FD_UNINITIALIZED and that thread will allocate and setup the
+    // va_space.
+    //
+    // Other threads will either see UVM_FD_INITIALIZING or UVM_FD_VA_SPACE. In
+    // the case of UVM_FD_VA_SPACE we return success if and only if the
+    // initialization flags match. If another thread is still initializing the
+    // va_space we return NV_ERR_BUSY_RETRY.
+    //
+    // If va_space initialization fails we return the failure code and reset the
+    // FD state back to UVM_FD_UNINITIALIZED to allow another initialization
+    // attempt to be made. This is safe because other threads will have only had
+    // a chance to observe UVM_FD_INITIALIZING and not UVM_FD_VA_SPACE in this
+    // case.
+    old_fd_type = atomic_long_cmpxchg((atomic_long_t *)&filp->private_data,
+                                      UVM_FD_UNINITIALIZED,
+                                      UVM_FD_INITIALIZING);
+    old_fd_type &= UVM_FD_TYPE_MASK;
+    if (old_fd_type == UVM_FD_UNINITIALIZED) {
+        status = uvm_va_space_create(filp->f_mapping, &va_space, params->flags);
+        if (status != NV_OK) {
+            atomic_long_set_release((atomic_long_t *)&filp->private_data, UVM_FD_UNINITIALIZED);
+            return status;
+        }
+
+        atomic_long_set_release((atomic_long_t *)&filp->private_data, (long)va_space | UVM_FD_VA_SPACE);
+    }
+    else if (old_fd_type == UVM_FD_VA_SPACE) {
+        va_space = uvm_va_space_get(filp);
+
+        if (params->flags != va_space->initialization_flags)
+            status = NV_ERR_INVALID_ARGUMENT;
+        else
+            status = NV_OK;
+    }
+    else if (old_fd_type == UVM_FD_MM) {
+        status = NV_ERR_INVALID_ARGUMENT;
+    }
+    else {
+        UVM_ASSERT(old_fd_type == UVM_FD_INITIALIZING);
+        status = NV_ERR_BUSY_RETRY;
+    }
+
+    return status;
 }
 
 static NV_STATUS uvm_api_pageable_mem_access(UVM_PAGEABLE_MEM_ACCESS_PARAMS *params, struct file *filp)
@@ -899,6 +1046,7 @@ static long uvm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             return 0;
 
         UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_INITIALIZE,                  uvm_api_initialize);
+        UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_MM_INITIALIZE,               uvm_api_mm_initialize);
 
         UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_PAGEABLE_MEM_ACCESS,            uvm_api_pageable_mem_access);
         UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_PAGEABLE_MEM_ACCESS_ON_GPU,     uvm_api_pageable_mem_access_on_gpu);
@@ -939,6 +1087,9 @@ static long uvm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_CLEAN_UP_ZOMBIE_RESOURCES,      uvm_api_clean_up_zombie_resources);
         UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_POPULATE_PAGEABLE,              uvm_api_populate_pageable);
         UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_VALIDATE_VA_RANGE,              uvm_api_validate_va_range);
+        UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_TOOLS_GET_PROCESSOR_UUID_TABLE_V2,uvm_api_tools_get_processor_uuid_table_v2);
+        UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_ALLOC_DEVICE_P2P,               uvm_api_alloc_device_p2p);
+        UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_CLEAR_ALL_ACCESS_COUNTERS,      uvm_api_clear_all_access_counters);
     }
 
     // Try the test ioctls if none of the above matched
@@ -978,16 +1129,9 @@ static const struct file_operations uvm_fops =
     .owner           = THIS_MODULE,
 };
 
-bool uvm_file_is_nvidia_uvm(struct file *filp)
-{
-    return (filp != NULL) && (filp->f_op == &uvm_fops);
-}
-
 NV_STATUS uvm_test_register_unload_state_buffer(UVM_TEST_REGISTER_UNLOAD_STATE_BUFFER_PARAMS *params, struct file *filp)
 {
     long ret;
-    int write = 1;
-    int force = 0;
     struct page *page;
     NV_STATUS status = NV_OK;
 
@@ -998,7 +1142,7 @@ NV_STATUS uvm_test_register_unload_state_buffer(UVM_TEST_REGISTER_UNLOAD_STATE_B
     // are not used because unload_state_buf may be a managed memory pointer and
     // therefore a locking assertion from the CPU fault handler could be fired.
     nv_mmap_read_lock(current->mm);
-    ret = NV_GET_USER_PAGES(params->unload_state_buf, 1, write, force, &page, NULL);
+    ret = NV_PIN_USER_PAGES(params->unload_state_buf, 1, FOLL_WRITE, &page);
     nv_mmap_read_unlock(current->mm);
 
     if (ret < 0)
@@ -1008,7 +1152,7 @@ NV_STATUS uvm_test_register_unload_state_buffer(UVM_TEST_REGISTER_UNLOAD_STATE_B
     uvm_mutex_lock(&g_uvm_global.global_lock);
 
     if (g_uvm_global.unload_state.ptr) {
-        put_page(page);
+        NV_UNPIN_USER_PAGE(page);
         status = NV_ERR_IN_USE;
         goto error;
     }
@@ -1027,7 +1171,7 @@ static void uvm_test_unload_state_exit(void)
 {
     if (g_uvm_global.unload_state.ptr) {
         kunmap(g_uvm_global.unload_state.page);
-        put_page(g_uvm_global.unload_state.page);
+        NV_UNPIN_USER_PAGE(g_uvm_global.unload_state.page);
     }
 }
 
@@ -1089,21 +1233,8 @@ static int uvm_init(void)
         goto error;
     }
 
-    pr_info("Loaded the UVM driver, major device number %d.\n", MAJOR(g_uvm_base_dev));
-
     if (uvm_enable_builtin_tests)
-        pr_info("Built-in UVM tests are enabled. This is a security risk.\n");
-
-
-    // After Open RM is released, both the enclosing "#if" and this comment
-    // block should be removed, because the uvm_hmm_is_enabled_system_wide()
-    // check is both necessary and sufficient for reporting functionality.
-    // Until that time, however, we need to avoid advertisting UVM's ability to
-    // enable HMM functionality.
-
-    if (uvm_hmm_is_enabled_system_wide())
-        UVM_INFO_PRINT("HMM (Heterogeneous Memory Management) is enabled in the UVM driver.\n");
-
+        UVM_INFO_PRINT("Built-in UVM tests are enabled. This is a security risk.\n");
 
     return 0;
 
@@ -1132,8 +1263,6 @@ static void uvm_exit(void)
     uvm_global_exit();
 
     uvm_test_unload_state_exit();
-
-    pr_info("Unloaded the UVM driver.\n");
 }
 
 static void __exit uvm_exit_entry(void)
@@ -1146,4 +1275,4 @@ module_exit(uvm_exit_entry);
 
 MODULE_LICENSE("Dual MIT/GPL");
 MODULE_INFO(supported, "external");
-
+MODULE_VERSION(NV_VERSION_STRING);

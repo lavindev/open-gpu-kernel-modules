@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2015-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -42,8 +42,14 @@
 
 #include "nvport/nvport.h"
 #include "regmap.h"
-#include "addrtree.h"
 #include "nvmisc.h"
+
+#if defined(SRT_BUILD)
+#define RMCFG_MODULE_x 1
+#define RMCFG_FEATURE_x 1
+#else
+#include "rmconfig.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,7 +58,7 @@ extern "C" {
 typedef struct OBJMEMSCRUB OBJMEMSCRUB;
 typedef struct SCRUB_NODE SCRUB_NODE;
 
-#define PMA_REGION_SIZE 64
+#define PMA_REGION_SIZE 32
 #define PMA_ADDR2FRAME(addr, base)  (((addr) - (base)) >> PMA_PAGE_SHIFT)
 #define PMA_FRAME2ADDR(frame, base) ((base) + ((frame) << PMA_PAGE_SHIFT))
 
@@ -66,7 +72,8 @@ typedef struct SCRUB_NODE SCRUB_NODE;
 #define PMA_INIT_NUMA                   NVBIT(2)
 #define PMA_INIT_INTERNAL               NVBIT(3) // Used after heap is removed
 #define PMA_INIT_FORCE_PERSISTENCE      NVBIT(4)
-#define PMA_INIT_ADDRTREE               NVBIT(5)
+// unused
+#define PMA_INIT_NUMA_AUTO_ONLINE       NVBIT(6)
 
 // These flags are used for querying PMA's config and/or state.
 #define PMA_QUERY_SCRUB_ENABLED         NVBIT(0)
@@ -92,6 +99,7 @@ typedef struct SCRUB_NODE SCRUB_NODE;
 #define PMA_ALLOCATE_NO_ZERO                NVBIT(10)
 #define PMA_ALLOCATE_TURN_BLACKLIST_OFF     NVBIT(11)
 #define PMA_ALLOCATE_ALLOW_PARTIAL          NVBIT(12)
+#define PMA_ALLOCATE_REVERSE_ALLOC          NVBIT(13)
 
 // Output flags
 #define PMA_ALLOCATE_RESULT_IS_ZERO         NVBIT(0)
@@ -150,28 +158,43 @@ typedef struct _RANGELISTTYPE
     struct _RANGELISTTYPE  *pNext;
 } RANGELISTTYPE, *PRANGELISTTYPE;
 
+typedef enum
+{
+    MEMORY_PROTECTION_UNPROTECTED = 0,
+    MEMORY_PROTECTION_PROTECTED   = 1
+} MEMORY_PROTECTION;
+
+/*!
+ * @brief Callback to update stats in RUSD
+ */
+typedef void (*pmaUpdateStatsCb_t)(void *pCtx, NvU64 freeFrames);
+
 /*!
  * @brief Callbacks to UVM for eviction
  */
-typedef NV_STATUS (*pmaEvictPagesCb_t)(void *ctxPtr, NvU32 pageSize, NvU64 *pPages, NvU32 count, NvU64 physBegin, NvU64 physEnd);
-typedef NV_STATUS (*pmaEvictRangeCb_t)(void *ctxPtr, NvU64 physBegin, NvU64 physEnd);
+typedef NV_STATUS (*pmaEvictPagesCb_t)(void *ctxPtr, NvU64 pageSize, NvU64 *pPages,
+                                       NvU32 count, NvU64 physBegin, NvU64 physEnd,
+                                       MEMORY_PROTECTION prot);
+typedef NV_STATUS (*pmaEvictRangeCb_t)(void *ctxPtr, NvU64 physBegin, NvU64 physEnd,
+                                       MEMORY_PROTECTION prot);
 
 /*!
  * @brief Pluggable data structure management. Currently we have regmap and address tree.
  */
 typedef void *(*pmaMapInit_t)(NvU64 numFrames, NvU64 addrBase, PMA_STATS *pPmaStats, NvBool bProtected);
 typedef void  (*pmaMapDestroy_t)(void *pMap);
-typedef void  (*pmaMapChangeState_t)(void *pMap, NvU64 frameNum, PMA_PAGESTATUS newState);
-typedef void  (*pmaMapChangeStateAttrib_t)(void *pMap, NvU64 frameNum, PMA_PAGESTATUS newState, NvBool writeAttrib);
-typedef void  (*pmaMapChangeStateAttribEx_t)(void *pMap, NvU64 frameNum, PMA_PAGESTATUS newState, PMA_PAGESTATUS newStateMask);
-typedef void  (*pmaMapChangePageStateAttrib_t)(void *pMap, NvU64 startFrame, NvU32 pageSize, PMA_PAGESTATUS newState, NvBool writeAttrib);
+typedef void  (*pmaMapChangeStateAttrib_t)(void *pMap, NvU64 frameNum, PMA_PAGESTATUS newState, PMA_PAGESTATUS newStateMask);
+typedef void  (*pmaMapChangePageStateAttrib_t)(void *pMap, NvU64 startFrame, NvU64 pageSize, PMA_PAGESTATUS newState, PMA_PAGESTATUS newStateMask);
+typedef void  (*pmaMapChangeBlockStateAttrib_t)(void *pMap, NvU64 frameNum, NvU64 numFrames, PMA_PAGESTATUS newState, PMA_PAGESTATUS newStateMask);
 typedef PMA_PAGESTATUS (*pmaMapRead_t)(void *pMap, NvU64 frameNum, NvBool readAttrib);
 typedef NV_STATUS (*pmaMapScanContiguous_t)(void *pMap, NvU64 addrBase, NvU64 rangeStart, NvU64 rangeEnd,
-                                            NvU64 numPages, NvU64 *freelist, NvU32 pageSize, NvU64 alignment,
-                                            NvU64 *pagesAllocated, NvBool bSkipEvict);
+                                            NvU64 numPages, NvU64 *freelist, NvU64 pageSize, NvU64 alignment,
+                                            NvU64 stride, NvU32 strideStart,
+                                            NvU64 *pagesAllocated, NvBool bSkipEvict, NvBool bReverseAlloc);
 typedef NV_STATUS (*pmaMapScanDiscontiguous_t)(void *pMap, NvU64 addrBase, NvU64 rangeStart, NvU64 rangeEnd,
-                                               NvU64 numPages, NvU64 *freelist, NvU32 pageSize, NvU64 alignment,
-                                               NvU64 *pagesAllocated, NvBool bSkipEvict);
+                                               NvU64 numPages, NvU64 *freelist, NvU64 pageSize, NvU64 alignment,
+                                               NvU64 stride, NvU32 strideStart,
+                                               NvU64 *pagesAllocated, NvBool bSkipEvict, NvBool bReverseAlloc);
 typedef void (*pmaMapGetSize_t)(void *pMap, NvU64 *pBytesTotal);
 typedef void (*pmaMapGetLargestFree_t)(void *pMap, NvU64 *pLargestFree);
 typedef NV_STATUS (*pmaMapScanContiguousNumaEviction_t)(void *pMap, NvU64 addrBase, NvLength actualSize,
@@ -184,10 +207,9 @@ struct _PMA_MAP_INFO
     NvU32                       mode;
     pmaMapInit_t                pmaMapInit;
     pmaMapDestroy_t             pmaMapDestroy;
-    pmaMapChangeState_t         pmaMapChangeState;
-    pmaMapChangeStateAttrib_t   pmaMapChangeStateAttrib;
-    pmaMapChangeStateAttribEx_t pmaMapChangeStateAttribEx;
-    pmaMapChangePageStateAttrib_t pmaMapChangePageStateAttrib;
+    pmaMapChangeStateAttrib_t      pmaMapChangeStateAttrib;
+    pmaMapChangePageStateAttrib_t  pmaMapChangePageStateAttrib;
+    pmaMapChangeBlockStateAttrib_t pmaMapChangeBlockStateAttrib;
     pmaMapRead_t                pmaMapRead;
     pmaMapScanContiguous_t      pmaMapScanContiguous;
     pmaMapScanDiscontiguous_t   pmaMapScanDiscontiguous;
@@ -235,11 +257,16 @@ struct _PMA
     NvU64                   coherentCpuFbBase;                  // Used to calculate FB offset from bus address
     NvU64                   coherentCpuFbSize;                  // Used for error checking only
     NvU32                   numaReclaimSkipThreshold;           // percent value below which __GFP_RECLAIM will not be used.
+    NvBool                  bNumaAutoOnline;                    // If NUMA memory is auto-onlined
 
     // Blacklist related states
     PMA_BLACKLIST_CHUNK    *pBlacklistChunks;                   // Tracking for blacklist pages
     NvU32                   blacklistCount;                     // Number of blacklist pages
     NvBool                  bClientManagedBlacklist;            // Blacklisted pages in PMA that will be taken over by Client
+
+    // RUSD Callback
+    pmaUpdateStatsCb_t      pStatsUpdateCb;                     // RUSD update free pages
+    void                   *pStatsUpdateCtx;                    // Context for RUSD update
 };
 
 /*!
@@ -417,12 +444,12 @@ NV_STATUS pmaRegisterRegion(PMA *pPma, NvU32 id, NvBool bAsyncEccScrub,
  *          code,because it is not very informative.
  *
  */
-NV_STATUS pmaAllocatePages(PMA *pPma, NvLength pageCount, NvU32 pageSize,
+NV_STATUS pmaAllocatePages(PMA *pPma, NvLength pageCount, NvU64 pageSize,
     PMA_ALLOCATION_OPTIONS *pAllocationOptions, NvU64 *pPages);
 
 // allocate on multiple GPU, thus pmaCount
 NV_STATUS pmaAllocatePagesBroadcast(PMA **pPma, NvU32 pmaCount, NvLength allocationCount,
-    NvU32 pageSize, PMA_ALLOCATION_OPTIONS *pAllocationOptions, NvU64 *pPages);
+    NvU64 pageSize, PMA_ALLOCATION_OPTIONS *pAllocationOptions, NvU64 *pPages);
 
 
 /*!
@@ -456,34 +483,7 @@ NV_STATUS pmaAllocatePagesBroadcast(PMA **pPma, NvU32 pmaCount, NvLength allocat
  *      TODO some error for rollback
  *
  */
-NV_STATUS pmaPinPages(PMA *pPma, NvU64 *pPages, NvLength pageCount, NvU32 pageSize);
-
-
-/*!
- * @brief Marks previously pinned pages as unpinned.
- *
- * It will return an error and rollback any change if any page is not
- * previously marked "pinned". Behaviour is undefined is any blacklisted
- * pages are unpinned.
- *
- * @param[in] pPages
- *      Array of base addresses of pages to pin
- *
- * @param[in] pageCount
- *      Number of pages to pin
- *
- * @param[in] pageSize
- *      Page size of each page being unpinned
- *
- * @return
- *      NV_ERR_GENERIC:
- *          Unexpected error. We try hard to avoid returning this error
- *          code,because it is not very informative.
- *      TODO some error for rollback
- *
- */
-NV_STATUS pmaUnpinPages(PMA *pPma, NvU64 *pPages, NvLength pageCount, NvU32 pageSize);
-
+NV_STATUS pmaPinPages(PMA *pPma, NvU64 *pPages, NvLength pageCount, NvU64 pageSize);
 
 /*!
  * @brief Marks a list of pages as free.
@@ -587,6 +587,22 @@ NV_STATUS pmaScrubComplete(PMA *pPma);
  */
 NV_STATUS pmaRegisterEvictionCb(PMA *pPma, pmaEvictPagesCb_t evictPagesCb, pmaEvictRangeCb_t evictRangeCb, void *ctxPtr);
 
+/*!
+ * Register the stats update callback.
+ *
+ * Register callback to call when number of free pages changes. Currently only used for RUSD.
+ *
+ * @param[in] pma
+ *      PMA object
+ *
+ * @param[in] pUpdateCb
+ *      The callback to call when updating free page count
+ *
+ * @param[in] ctxPtr
+ *      The callback context pointer to be passed back on callback
+ */
+void pmaRegisterUpdateStatsCb(PMA *pPma, pmaUpdateStatsCb_t pUpdateCb, void *ctxPtr);
+
 
 /*!
  * Unregister the eviction callbacks.
@@ -637,6 +653,20 @@ NV_STATUS pmaGetRegionInfo(PMA *pPma, NvU32 *pRegSize, PMA_REGION_DESCRIPTOR **p
  *      void
  */
 void pmaGetFreeMemory(PMA *pPma, NvU64 *pBytesFree);
+
+/*!
+ * @brief Returns information about the client address space size
+ *        that can be allocated
+ *
+ * @param[in]  pPma           PMA pointer
+ * @param[in]  pSize          Pointer that will return the size of the
+ *                            client-allocatable address space
+ *
+ * @return
+ *      void
+ */
+void
+pmaGetClientAddrSpaceSize(PMA *pPma, NvU64 *pSize);
 
 /*!
  * @brief Returns information about the largest free FB memory chunk across all regions.
@@ -799,7 +829,7 @@ void pmaNumaOfflined(PMA *pPma);
  * @return
  *     void
  */
-void pmaGetClientBlacklistedPages(PMA *pPma, NvU64 *pChunks, NvU32 *pPageSize, NvU32 *pNumChunks);
+void pmaGetClientBlacklistedPages(PMA *pPma, NvU64 *pChunks, NvU64 *pPageSize, NvU32 *pNumChunks);
 
 /*!
  * @brief Returns the PMA blacklist size in bytes for
@@ -848,6 +878,54 @@ void pmaPrintMapState(PMA *pPma);
  *     void
  */
 NV_STATUS pmaAddToBlacklistTracking(PMA *pPma, NvU64 physBase);
+
+/*!
+ * @brief Returns total protected video memory.
+ *
+ * @param[in]  pPma           PMA pointer
+ * @param[in]  pBytesTotal    Pointer that will return the total FB memory size.
+ *
+ * @return
+ *      void
+ */
+void pmaGetTotalProtectedMemory(PMA *pPma, NvU64 *pBytesTotal);
+
+/*!
+ * @brief Returns total unprotected video memory.
+ *
+ * @param[in]  pPma           PMA pointer
+ * @param[in]  pBytesTotal    Pointer that will return the total FB memory size.
+ *
+ * @return
+ *      void
+ */
+void pmaGetTotalUnprotectedMemory(PMA *pPma, NvU64 *pBytesTotal);
+
+/*!
+ * @brief Returns information about the total free protected FB memory.
+ *        In confidential compute use cases, memory will be split into
+ *        protected and unprotected regions
+ *
+ * @param[in]  pPma           PMA pointer
+ * @param[in]  pBytesFree     Pointer that will return the free protected memory size.
+ *
+ * @return
+ *      void
+ */
+void pmaGetFreeProtectedMemory(PMA *pPma, NvU64 *pBytesFree);
+
+/*!
+ * @brief Returns information about the total free unprotected FB memory.
+ *        In confidential compute use cases, memory will be split into
+ *        protected and unprotected regions
+ *
+ * @param[in]  pPma           PMA pointer
+ * @param[in]  pBytesFree     Pointer that will return the free unprotected memory size.
+ *
+ * @return
+ *      void
+ */
+void pmaGetFreeUnprotectedMemory(PMA *pPma, NvU64 *pBytesFree);
 
 #ifdef __cplusplus
 }

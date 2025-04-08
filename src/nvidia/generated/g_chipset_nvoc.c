@@ -57,6 +57,10 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_OBJCL =
     /*pExportInfo=*/        &__nvoc_export_info_OBJCL
 };
 
+// Down-thunk(s) to bridge OBJCL methods from ancestors (if any)
+
+// Up-thunk(s) to bridge OBJCL methods to ancestors (if any)
+
 const struct NVOC_EXPORT_INFO __nvoc_export_info_OBJCL = 
 {
     /*numEntries=*/     0,
@@ -72,7 +76,8 @@ void __nvoc_dtor_OBJCL(OBJCL *pThis) {
 
 void __nvoc_init_dataField_OBJCL(OBJCL *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
-    pThis->setProperty(pThis, PDB_PROP_CL_HAS_RESIZABLE_BAR_ISSUE, ((NvBool)(0 != 0)));
+    pThis->setProperty(pThis, PDB_PROP_CL_HAS_RESIZABLE_BAR_ISSUE, NV_FALSE);
+    pThis->setProperty(pThis, PDB_PROP_CL_BUG_3751839_GEN_SPEED_WAR, NV_FALSE);
 }
 
 NV_STATUS __nvoc_ctor_Object(Object* );
@@ -94,10 +99,13 @@ __nvoc_ctor_OBJCL_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_OBJCL_1(OBJCL *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
-}
+} // End __nvoc_init_funcTable_OBJCL_1
 
+
+// Initialize vtable(s): Nothing to do for empty vtables
 void __nvoc_init_funcTable_OBJCL(OBJCL *pThis) {
     __nvoc_init_funcTable_OBJCL_1(pThis);
 }
@@ -110,18 +118,26 @@ void __nvoc_init_OBJCL(OBJCL *pThis) {
     __nvoc_init_funcTable_OBJCL(pThis);
 }
 
-NV_STATUS __nvoc_objCreate_OBJCL(OBJCL **ppThis, Dynamic *pParent, NvU32 createFlags) {
+NV_STATUS __nvoc_objCreate_OBJCL(OBJCL **ppThis, Dynamic *pParent, NvU32 createFlags)
+{
     NV_STATUS status;
-    Object *pParentObj;
+    Object *pParentObj = NULL;
     OBJCL *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(OBJCL));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    // Assign `pThis`, allocating memory unless suppressed by flag.
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(OBJCL), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
+    // Zero is the initial value for everything.
     portMemSet(pThis, 0, sizeof(OBJCL));
 
+    // Initialize runtime type information.
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_OBJCL);
 
+    pThis->__nvoc_base_Object.createFlags = createFlags;
+
+    // Link the child into the parent if there is one unless flagged not to do so.
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
         pParentObj = dynamicCast(pParent, Object);
@@ -136,12 +152,27 @@ NV_STATUS __nvoc_objCreate_OBJCL(OBJCL **ppThis, Dynamic *pParent, NvU32 createF
     status = __nvoc_ctor_OBJCL(pThis);
     if (status != NV_OK) goto __nvoc_objCreate_OBJCL_cleanup;
 
+    // Assignment has no effect if NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT is set.
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_OBJCL_cleanup:
-    // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+
+    // Unlink the child from the parent if it was linked above.
+    if (pParentObj != NULL)
+        objRemoveChild(pParentObj, &pThis->__nvoc_base_Object);
+
+    // Do not call destructors here since the constructor already called them.
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(OBJCL));
+    else
+    {
+        portMemFree(pThis);
+        *ppThis = NULL;
+    }
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 

@@ -1,5 +1,5 @@
 /*******************************************************************************
-    Copyright (c) 2018-2021 NVIDIA Corporation
+    Copyright (c) 2018-2023 NVIDIA Corporation
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to
@@ -30,6 +30,14 @@
 #include "uvm_va_space.h"
 #include "uvm_populate_pageable.h"
 
+#if defined(NV_HANDLE_MM_FAULT_HAS_MM_ARG)
+#define UVM_HANDLE_MM_FAULT(vma, addr, flags)       handle_mm_fault(vma->vm_mm, vma, addr, flags)
+#elif defined(NV_HANDLE_MM_FAULT_HAS_PT_REGS_ARG)
+#define UVM_HANDLE_MM_FAULT(vma, addr, flags)       handle_mm_fault(vma, addr, flags, NULL)
+#else
+#define UVM_HANDLE_MM_FAULT(vma, addr, flags)       handle_mm_fault(vma, addr, flags)
+#endif
+
 static bool is_write_populate(struct vm_area_struct *vma, uvm_populate_permissions_t populate_permissions)
 {
     switch (populate_permissions) {
@@ -45,6 +53,34 @@ static bool is_write_populate(struct vm_area_struct *vma, uvm_populate_permissio
     }
 }
 
+static NV_STATUS handle_fault(struct vm_area_struct *vma, unsigned long start, unsigned long vma_num_pages, bool write)
+{
+    NV_STATUS status = NV_OK;
+
+    unsigned long i;
+    unsigned int ret = 0;
+    unsigned int fault_flags = write ? FAULT_FLAG_WRITE : 0;
+
+#if defined(NV_MM_HAS_FAULT_FLAG_REMOTE)
+    fault_flags |= (FAULT_FLAG_REMOTE);
+#endif
+
+    for (i = 0; i < vma_num_pages; i++) {
+        ret = UVM_HANDLE_MM_FAULT(vma, start + (i * PAGE_SIZE), fault_flags);
+        if (ret & VM_FAULT_ERROR) {
+#if defined(NV_VM_FAULT_TO_ERRNO_PRESENT)
+            int err = vm_fault_to_errno(ret, fault_flags);
+            status = errno_to_nv_status(err);
+#else
+            status = errno_to_nv_status(-EFAULT);
+#endif
+            break;
+        }
+    }
+
+    return status;
+}
+
 NV_STATUS uvm_populate_pageable_vma(struct vm_area_struct *vma,
                                     unsigned long start,
                                     unsigned long length,
@@ -54,7 +90,7 @@ NV_STATUS uvm_populate_pageable_vma(struct vm_area_struct *vma,
 {
     unsigned long vma_num_pages;
     unsigned long outer = start + length;
-    const bool is_writable = is_write_populate(vma, populate_permissions);
+    unsigned int gup_flags = is_write_populate(vma, populate_permissions) ? FOLL_WRITE : 0;
     struct mm_struct *mm = vma->vm_mm;
     unsigned long vm_flags = vma->vm_flags;
     bool uvm_managed_vma;
@@ -97,7 +133,23 @@ NV_STATUS uvm_populate_pageable_vma(struct vm_area_struct *vma,
     if (uvm_managed_vma)
         uvm_record_unlock_mmap_lock_read(mm);
 
-    ret = NV_GET_USER_PAGES_REMOTE(NULL, mm, start, vma_num_pages, is_writable, 0, pages, NULL);
+    status = handle_fault(vma, start, vma_num_pages, !!(gup_flags & FOLL_WRITE));
+    if (status != NV_OK)
+        goto out;
+
+    // Kernel v6.6 introduced a bug in set_pte_range() around the handling of AF
+    // bit. Instead of setting the AF bit, the bit is incorrectly being cleared
+    // in set_pte_range() during first-touch fault handling. Calling
+    // handle_mm_fault() again takes a different code path which correctly sets
+    // the AF bit.
+    status = handle_fault(vma, start, vma_num_pages, !!(gup_flags & FOLL_WRITE));
+    if (status != NV_OK)
+        goto out;
+
+    if (touch)
+        ret = NV_PIN_USER_PAGES_REMOTE(mm, start, vma_num_pages, gup_flags, pages, NULL);
+    else
+        ret = NV_GET_USER_PAGES_REMOTE(mm, start, vma_num_pages, gup_flags, pages, NULL);
 
     if (uvm_managed_vma)
         uvm_record_lock_mmap_lock_read(mm);
@@ -114,7 +166,7 @@ NV_STATUS uvm_populate_pageable_vma(struct vm_area_struct *vma,
 
             for (i = 0; i < ret; i++) {
                 UVM_ASSERT(pages[i]);
-                put_page(pages[i]);
+                NV_UNPIN_USER_PAGE(pages[i]);
             }
         }
 
@@ -127,7 +179,7 @@ NV_STATUS uvm_populate_pageable_vma(struct vm_area_struct *vma,
 
         for (i = 0; i < vma_num_pages; i++) {
             uvm_touch_page(pages[i]);
-            put_page(pages[i]);
+            NV_UNPIN_USER_PAGE(pages[i]);
         }
     }
 
@@ -141,7 +193,8 @@ NV_STATUS uvm_populate_pageable(struct mm_struct *mm,
                                 const unsigned long length,
                                 int min_prot,
                                 bool touch,
-                                uvm_populate_permissions_t populate_permissions)
+                                uvm_populate_permissions_t populate_permissions,
+                                NvU32 flags)
 {
     struct vm_area_struct *vma;
     const unsigned long end = start + length;
@@ -159,8 +212,20 @@ NV_STATUS uvm_populate_pageable(struct mm_struct *mm,
     // different protection flags
     // Validation of VM_SPECIAL flags is delegated to get_user_pages
     for (; vma && vma->vm_start <= prev_end; vma = find_vma_intersection(mm, prev_end, end)) {
-        NV_STATUS status = uvm_populate_pageable_vma(vma, start, end - start, min_prot, touch, populate_permissions);
+        NV_STATUS status;
 
+        // Population of UVM-owned VMAs is only allowed for test purposes. The
+        // goal is to validate that it is possible to populate pageable ranges
+        // backed by VMAs with the VM_MIXEDMAP or VM_DONTEXPAND special flags
+        // set. But since there is no portable way to force allocation of such
+        // memory from user space, and it is not safe to change the flags of an
+        // already-created VMA from kernel space, we take advantage of the fact
+        // that managed ranges have both special flags set at creation time (see
+        // uvm_mmap)
+        if (!(flags & UVM_POPULATE_PAGEABLE_FLAG_ALLOW_MANAGED) && uvm_file_is_nvidia_uvm(vma->vm_file))
+            return NV_ERR_INVALID_ADDRESS;
+
+        status = uvm_populate_pageable_vma(vma, start, end - start, min_prot, touch, populate_permissions);
         if (status != NV_OK)
             return status;
 
@@ -177,10 +242,8 @@ NV_STATUS uvm_populate_pageable(struct mm_struct *mm,
 NV_STATUS uvm_api_populate_pageable(const UVM_POPULATE_PAGEABLE_PARAMS *params, struct file *filp)
 {
     NV_STATUS status;
-    bool allow_managed;
     bool skip_prot_check;
     int min_prot;
-    uvm_va_space_t *va_space = uvm_va_space_get(filp);
 
     if (params->flags & ~UVM_POPULATE_PAGEABLE_FLAGS_ALL)
         return NV_ERR_INVALID_ARGUMENT;
@@ -189,15 +252,6 @@ NV_STATUS uvm_api_populate_pageable(const UVM_POPULATE_PAGEABLE_PARAMS *params, 
         UVM_INFO_PRINT("Test flag set for UVM_POPULATE_PAGEABLE. Did you mean to insmod with uvm_enable_builtin_tests=1?\n");
         return NV_ERR_INVALID_ARGUMENT;
     }
-
-    // Population of managed ranges is only allowed for test purposes. The goal
-    // is to validate that it is possible to populate pageable ranges backed by
-    // VMAs with the VM_MIXEDMAP or VM_DONTEXPAND special flags set. But since
-    // there is no portable way to force allocation of such memory from user
-    // space, and it is not safe to change the flags of an already created
-    // VMA from kernel space, we take advantage of the fact that managed ranges
-    // have both special flags set at creation time (see uvm_mmap)
-    allow_managed = params->flags & UVM_POPULATE_PAGEABLE_FLAG_ALLOW_MANAGED;
 
     skip_prot_check = params->flags & UVM_POPULATE_PAGEABLE_FLAG_SKIP_PROT_CHECK;
     if (skip_prot_check)
@@ -213,19 +267,17 @@ NV_STATUS uvm_api_populate_pageable(const UVM_POPULATE_PAGEABLE_PARAMS *params, 
     // mmap_lock is needed to traverse the vmas in the input range and call
     // into get_user_pages. Unlike most UVM APIs, this one is defined to only
     // work on current->mm, not the mm associated with the VA space (if any).
+    // This means we do not need to take the VA space lock. The VA space of this
+    // file might not even be associated with this mm.
     uvm_down_read_mmap_lock(current->mm);
 
-    if (allow_managed || uvm_va_space_range_empty(va_space, params->base, params->base + params->length - 1)) {
-        status = uvm_populate_pageable(current->mm,
-                                       params->base,
-                                       params->length,
-                                       min_prot,
-                                       false,
-                                       UVM_POPULATE_PERMISSIONS_INHERIT);
-    }
-    else {
-        status = NV_ERR_INVALID_ADDRESS;
-    }
+    status = uvm_populate_pageable(current->mm,
+                                   params->base,
+                                   params->length,
+                                   min_prot,
+                                   false,
+                                   UVM_POPULATE_PERMISSIONS_INHERIT,
+                                   params->flags);
 
     uvm_up_read_mmap_lock(current->mm);
 

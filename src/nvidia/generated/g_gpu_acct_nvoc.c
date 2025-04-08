@@ -57,6 +57,10 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_GpuAccounting =
     /*pExportInfo=*/        &__nvoc_export_info_GpuAccounting
 };
 
+// Down-thunk(s) to bridge GpuAccounting methods from ancestors (if any)
+
+// Up-thunk(s) to bridge GpuAccounting methods to ancestors (if any)
+
 const struct NVOC_EXPORT_INFO __nvoc_export_info_GpuAccounting = 
 {
     /*numEntries=*/     0,
@@ -93,10 +97,13 @@ __nvoc_ctor_GpuAccounting_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_GpuAccounting_1(GpuAccounting *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
-}
+} // End __nvoc_init_funcTable_GpuAccounting_1
 
+
+// Initialize vtable(s): Nothing to do for empty vtables
 void __nvoc_init_funcTable_GpuAccounting(GpuAccounting *pThis) {
     __nvoc_init_funcTable_GpuAccounting_1(pThis);
 }
@@ -109,18 +116,26 @@ void __nvoc_init_GpuAccounting(GpuAccounting *pThis) {
     __nvoc_init_funcTable_GpuAccounting(pThis);
 }
 
-NV_STATUS __nvoc_objCreate_GpuAccounting(GpuAccounting **ppThis, Dynamic *pParent, NvU32 createFlags) {
+NV_STATUS __nvoc_objCreate_GpuAccounting(GpuAccounting **ppThis, Dynamic *pParent, NvU32 createFlags)
+{
     NV_STATUS status;
-    Object *pParentObj;
+    Object *pParentObj = NULL;
     GpuAccounting *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(GpuAccounting));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    // Assign `pThis`, allocating memory unless suppressed by flag.
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(GpuAccounting), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
+    // Zero is the initial value for everything.
     portMemSet(pThis, 0, sizeof(GpuAccounting));
 
+    // Initialize runtime type information.
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_GpuAccounting);
 
+    pThis->__nvoc_base_Object.createFlags = createFlags;
+
+    // Link the child into the parent if there is one unless flagged not to do so.
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
         pParentObj = dynamicCast(pParent, Object);
@@ -135,12 +150,27 @@ NV_STATUS __nvoc_objCreate_GpuAccounting(GpuAccounting **ppThis, Dynamic *pParen
     status = __nvoc_ctor_GpuAccounting(pThis);
     if (status != NV_OK) goto __nvoc_objCreate_GpuAccounting_cleanup;
 
+    // Assignment has no effect if NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT is set.
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_GpuAccounting_cleanup:
-    // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+
+    // Unlink the child from the parent if it was linked above.
+    if (pParentObj != NULL)
+        objRemoveChild(pParentObj, &pThis->__nvoc_base_Object);
+
+    // Do not call destructors here since the constructor already called them.
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(GpuAccounting));
+    else
+    {
+        portMemFree(pThis);
+        *ppThis = NULL;
+    }
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 

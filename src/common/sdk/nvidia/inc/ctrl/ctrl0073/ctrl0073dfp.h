@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2005-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2005-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -27,13 +27,13 @@
 
 //
 // This file was generated with FINN, an NVIDIA coding tool.
-// Source file: ctrl/ctrl0073/ctrl0073dfp.finn
+// Source file:      ctrl/ctrl0073/ctrl0073dfp.finn
 //
 
-
-
-
 #include "ctrl/ctrl0073/ctrl0073base.h"
+#include "ctrl/ctrl0073/ctrl0073common.h"
+
+#include "nvcfg_sdk.h"
 
 /* NV04_DISPLAY_COMMON dfp-display-specific control commands and parameters */
 
@@ -86,9 +86,10 @@
  *       NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE
  *         This specifies whether the displayId is capable of sending
  *         YCBCR444 color format out from the board.
+ *       NV0073_CTRL_DFP_FLAGS_TYPE_C_TO_DP_CONNECTOR
+ *         This specifies whether the displayId is a DP connector routed to an USB-TYPE-C port.
  *       NV0073_CTRL_DFP_FLAGS_DP_LINK_BANDWIDTH
- *         This specifies whether the displayId is capable of doing high
- *         bit-rate (2.7Gbps) or low bit-rate (1.62Gbps) if the DFP is
+ *         This specifies max link rate supported by the displayId, if the DFP is
  *         display port.
  *       NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED
  *         This specifies whether the DFP displayId is allowed to transmit HDMI
@@ -107,7 +108,9 @@
  *       NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID
  *         This indicates whether this SOR uses DSI-A, DSI-B or both (ganged mode).
  *       NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE
- *         This indicates whether this DFP supports Dynamic MUX
+ *         This indicates whether this DFP supports DDS (NV dynamic display mux).
+ *   UHBRSupportedByDfp
+ *     Bitmask to specify the UHBR link rates supported by this dfp.
  *
  * Possible status values returned are:
  *   NV_OK
@@ -122,76 +125,90 @@ typedef struct NV0073_CTRL_DFP_GET_INFO_PARAMS {
     NvU32 subDeviceInstance;
     NvU32 displayId;
     NvU32 flags;
+    NvU32 UHBRSupportedByDfp;
 } NV0073_CTRL_DFP_GET_INFO_PARAMS;
 
 /* valid display types */
 #define NV0073_CTRL_DFP_FLAGS_SIGNAL                                       2:0
-#define NV0073_CTRL_DFP_FLAGS_SIGNAL_TMDS                    (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_SIGNAL_LVDS                    (0x00000001U)
-#define NV0073_CTRL_DFP_FLAGS_SIGNAL_SDI                     (0x00000002U)
-#define NV0073_CTRL_DFP_FLAGS_SIGNAL_DISPLAYPORT             (0x00000003U)
-#define NV0073_CTRL_DFP_FLAGS_SIGNAL_DSI                     (0x00000004U)
-#define NV0073_CTRL_DFP_FLAGS_SIGNAL_WRBK                    (0x00000005U)
+#define NV0073_CTRL_DFP_FLAGS_SIGNAL_TMDS                       (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_SIGNAL_LVDS                       (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_SIGNAL_SDI                        (0x00000002U)
+#define NV0073_CTRL_DFP_FLAGS_SIGNAL_DISPLAYPORT                (0x00000003U)
+#define NV0073_CTRL_DFP_FLAGS_SIGNAL_DSI                        (0x00000004U)
+#define NV0073_CTRL_DFP_FLAGS_SIGNAL_WRBK                       (0x00000005U)
 #define NV0073_CTRL_DFP_FLAGS_LANE                                         5:3
-#define NV0073_CTRL_DFP_FLAGS_LANE_NONE                      (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_LANE_SINGLE                    (0x00000001U)
-#define NV0073_CTRL_DFP_FLAGS_LANE_DUAL                      (0x00000002U)
-#define NV0073_CTRL_DFP_FLAGS_LANE_QUAD                      (0x00000003U)
-#define NV0073_CTRL_DFP_FLAGS_LANE_OCT                       (0x00000004U)
+#define NV0073_CTRL_DFP_FLAGS_LANE_NONE                         (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_LANE_SINGLE                       (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_LANE_DUAL                         (0x00000002U)
+#define NV0073_CTRL_DFP_FLAGS_LANE_QUAD                         (0x00000003U)
+#define NV0073_CTRL_DFP_FLAGS_LANE_OCT                          (0x00000004U)
 #define NV0073_CTRL_DFP_FLAGS_LIMIT                                        6:6
-#define NV0073_CTRL_DFP_FLAGS_LIMIT_DISABLE                  (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_LIMIT_60HZ_RR                  (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_LIMIT_DISABLE                     (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_LIMIT_60HZ_RR                     (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_SLI_SCALER                                   7:7
-#define NV0073_CTRL_DFP_FLAGS_SLI_SCALER_NORMAL              (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_SLI_SCALER_DISABLE             (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_SLI_SCALER_NORMAL                 (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_SLI_SCALER_DISABLE                (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_HDMI_CAPABLE                                 8:8
-#define NV0073_CTRL_DFP_FLAGS_HDMI_CAPABLE_FALSE             (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_HDMI_CAPABLE_TRUE              (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_HDMI_CAPABLE_FALSE                (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_HDMI_CAPABLE_TRUE                 (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_RANGE_LIMITED_CAPABLE                        9:9
-#define NV0073_CTRL_DFP_FLAGS_RANGE_LIMITED_CAPABLE_FALSE    (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_RANGE_LIMITED_CAPABLE_TRUE     (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_RANGE_LIMITED_CAPABLE_FALSE       (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_RANGE_LIMITED_CAPABLE_TRUE        (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_RANGE_AUTO_CAPABLE                         10:10
-#define NV0073_CTRL_DFP_FLAGS_RANGE_AUTO_CAPABLE_FALSE       (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_RANGE_AUTO_CAPABLE_TRUE        (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_RANGE_AUTO_CAPABLE_FALSE          (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_RANGE_AUTO_CAPABLE_TRUE           (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR422_CAPABLE                    11:11
-#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR422_CAPABLE_FALSE  (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR422_CAPABLE_TRUE   (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR422_CAPABLE_FALSE     (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR422_CAPABLE_TRUE      (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE                    12:12
-#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE_FALSE  (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE_TRUE   (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE_FALSE     (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_FORMAT_YCBCR444_CAPABLE_TRUE      (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_TYPE_C_TO_DP_CONNECTOR                     13:13
+#define NV0073_CTRL_DFP_FLAGS_TYPE_C_TO_DP_CONNECTOR_FALSE      (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_TYPE_C_TO_DP_CONNECTOR_TRUE       (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED                               14:14
-#define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED_FALSE             (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED_TRUE              (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED_FALSE                (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_HDMI_ALLOWED_TRUE                 (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_EMBEDDED_DISPLAYPORT                       15:15
-#define NV0073_CTRL_DFP_FLAGS_EMBEDDED_DISPLAYPORT_FALSE     (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_EMBEDDED_DISPLAYPORT_TRUE      (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_EMBEDDED_DISPLAYPORT_FALSE        (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_EMBEDDED_DISPLAYPORT_TRUE         (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_DP_LINK_CONSTRAINT                         16:16
-#define NV0073_CTRL_DFP_FLAGS_DP_LINK_CONSTRAINT_NONE        (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_DP_LINK_CONSTRAINT_PREFER_RBR  (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_DP_LINK_CONSTRAINT_NONE           (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_DP_LINK_CONSTRAINT_PREFER_RBR     (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW                                 19:17
-#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_1_62GBPS            (0x00000001U)
-#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_2_70GBPS            (0x00000002U)
-#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_5_40GBPS            (0x00000003U)
-#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_8_10GBPS            (0x00000004U)
+#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_1_62GBPS               (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_2_70GBPS               (0x00000002U)
+#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_5_40GBPS               (0x00000003U)
+#define NV0073_CTRL_DFP_FLAGS_DP_LINK_BW_8_10GBPS               (0x00000004U)
 #define NV0073_CTRL_DFP_FLAGS_LINK                                       21:20
-#define NV0073_CTRL_DFP_FLAGS_LINK_NONE                      (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_LINK_SINGLE                    (0x00000001U)
-#define NV0073_CTRL_DFP_FLAGS_LINK_DUAL                      (0x00000002U)
+#define NV0073_CTRL_DFP_FLAGS_LINK_NONE                         (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_LINK_SINGLE                       (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_LINK_DUAL                         (0x00000002U)
 #define NV0073_CTRL_DFP_FLAGS_DP_FORCE_RM_EDID                           22:22
-#define NV0073_CTRL_DFP_FLAGS_DP_FORCE_RM_EDID_FALSE         (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_DP_FORCE_RM_EDID_TRUE          (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_DP_FORCE_RM_EDID_FALSE            (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_DP_FORCE_RM_EDID_TRUE             (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID                              24:23
-#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_NONE         (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_A            (0x00000001U)
-#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_B            (0x00000002U)
-#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_GANGED       (0x00000003U)
+#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_NONE            (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_A               (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_B               (0x00000002U)
+#define NV0073_CTRL_DFP_FLAGS_DSI_DEVICE_ID_DSI_GANGED          (0x00000003U)
 #define NV0073_CTRL_DFP_FLAGS_DP_POST_CURSOR2_DISABLED                   25:25
-#define NV0073_CTRL_DFP_FLAGS_DP_POST_CURSOR2_DISABLED_FALSE (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_DP_POST_CURSOR2_DISABLED_TRUE  (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_DP_POST_CURSOR2_DISABLED_FALSE    (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_DP_POST_CURSOR2_DISABLED_TRUE     (0x00000001U)
 #define NV0073_CTRL_DFP_FLAGS_DP_PHY_REPEATER_COUNT                      29:26
 #define NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE                        30:30
-#define NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE_FALSE      (0x00000000U)
-#define NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE_TRUE       (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE_FALSE         (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS_DYNAMIC_MUX_CAPABLE_TRUE          (0x00000001U)
+
+#define NV0073_CTRL_DFP_FLAGS2_DP_UHBR_SUPPORTED_10_0GBPS                  0:0
+#define NV0073_CTRL_DFP_FLAGS2_DP_UHBR_SUPPORTED_10_0GBPS_FALSE (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS2_DP_UHBR_SUPPORTED_10_0GBPS_TRUE  (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS2_DP_UHBR_SUPPORTED_13_5GBPS                  1:1
+#define NV0073_CTRL_DFP_FLAGS2_DP_UHBR_SUPPORTED_13_5GBPS_FALSE (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS2_DP_UHBR_SUPPORTED_13_5GBPS_TRUE  (0x00000001U)
+#define NV0073_CTRL_DFP_FLAGS2_DP_UHBR_SUPPORTED_20_0GBPS                  2:2
+#define NV0073_CTRL_DFP_FLAGS2_DP_UHBR_SUPPORTED_20_0GBPS_FALSE (0x00000000U)
+#define NV0073_CTRL_DFP_FLAGS2_DP_UHBR_SUPPORTED_20_0GBPS_TRUE  (0x00000001U)
 
 
 
@@ -464,11 +481,10 @@ typedef struct NV0073_CTRL_DFP_SET_AUDIO_ENABLE_PARAMS {
 } NV0073_CTRL_DFP_SET_AUDIO_ENABLE_PARAMS;
 
 
-
 /*
  * NV0073_CTRL_DFP_ASSIGN_SOR_LINKCONFIG
  *
- * This enum defines default/primary/secondary sor sublinks to be configured.
+ * This variable specifies default/primary/secondary sor sublinks to be configured.
  * These access modes are:
  *
  *  NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_NONE
@@ -478,11 +494,11 @@ typedef struct NV0073_CTRL_DFP_SET_AUDIO_ENABLE_PARAMS {
  *  NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_SECONDARY_SOR_LINK
  *    Secondary sor sublink to be configured
  */
-typedef enum NV0073_CTRL_DFP_ASSIGN_SOR_LINKCONFIG {
-    NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_NONE = 0,
-    NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_PRIMARY_SOR_LINK = 1,
-    NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_SECONDARY_SOR_LINK = 2,
-} NV0073_CTRL_DFP_ASSIGN_SOR_LINKCONFIG;
+typedef NvU32 NV0073_CTRL_DFP_ASSIGN_SOR_LINKCONFIG;
+
+#define NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_NONE               (0x0U)
+#define NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_PRIMARY_SOR_LINK   (0x1U)
+#define NV0073_CTRL_DFP_ASSIGN_SOR_FORCE_SECONDARY_SOR_LINK (0x2U)
 
 /*
  * NV0073_CTRL_DFP_ASSIGN_SOR_INFO
@@ -572,7 +588,7 @@ typedef struct NV0073_CTRL_DFP_ASSIGN_SOR_INFO {
  *           _ACTIVE_SOR_NOT_AUDIO_CAPABLE_YES : RM returns Active SOR which is not Audio capable.
  *           _ACTIVE_SOR_NOT_AUDIO_CAPABLE_NO  : RM is not returning 'Active non-audio capable SOR'.
  *
- *  Possible status values returned are: 
+ *  Possible status values returned are:
  *   NV_OK
  *   NV_ERR_INVALID_ARGUMENT
  *   NV_ERR_NOT_SUPPORTED
@@ -940,6 +956,9 @@ typedef struct NV0073_CTRL_CMD_DFP_RUN_PRE_DISP_MUX_OPERATIONS_PARAMS {
 #define NV0073_CTRL_DFP_DISP_MUX_FLAGS_MUX_SWITCH_IGPU_POWER_TIMING  2:2
 #define NV0073_CTRL_DFP_DISP_MUX_FLAGS_MUX_SWITCH_IGPU_POWER_TIMING_KNOWN   0x00000000
 #define NV0073_CTRL_DFP_DISP_MUX_FLAGS_MUX_SWITCH_IGPU_POWER_TIMING_UNKNOWN 0x00000001
+#define NV0073_CTRL_DFP_DISP_MUX_FLAGS_SKIP_BACKLIGHT_ENABLE         3:3
+#define NV0073_CTRL_DFP_DISP_MUX_FLAGS_SKIP_BACKLIGHT_ENABLE_NO             0x00000000U
+#define NV0073_CTRL_DFP_DISP_MUX_FLAGS_SKIP_BACKLIGHT_ENABLE_YES            0x00000001U
 
 #define NV0073_CTRL_DISP_MUX_BACKLIGHT_BRIGHTNESS_MIN                       0U
 #define NV0073_CTRL_DISP_MUX_BACKLIGHT_BRIGHTNESS_MAX                       100U
@@ -1095,11 +1114,57 @@ typedef struct NV0073_CTRL_CMD_DFP_GET_DISP_MUX_STATUS_PARAMS {
 *   vActive
 *     This parameter specifies the vertical lines of the active pixel
 *     data in the raster.
+*   hFrontPorch
+*     This parameter specifies the number of horizontal front porch
+*     blanking pixels in the raster.
+*   vFrontPorch
+*     This parameter specifies the numer of lines of the vertical front
+*     porch in the raster.
+*   hBackPorch
+*     This parameter specifies the number of horizontal back porch
+*     blanking pixels in the raster.
+*   vBackPorch
+*     This parameter specifies the numer of lines of the vertical back
+*     porch in the raster.
+*   hSyncWidth
+*     This parameter specifies the number of horizontal sync pixels in
+*     the raster.
+*   vSyncWidth
+*     This parameter specifies the numer of lines of the vertical sync
+*     in the raster.
 *   bpp
 *     This parameter specifies the depth (Bits per Pixel) of the output
 *     display stream.
 *   refresh
 *     This parameter specifies the refresh rate of the panel (in Hz).
+*   pclkHz
+*     This parameter specifies the pixel clock rate in Hz.
+*   numLanes
+*     Number of DSI data lanes.
+*   dscEnable
+*     Flag to indicate if DSC an be enabled, which in turn indicates if
+*     panel supports DSC.
+*   dscBpp
+*     DSC Bits per pixel
+*   dscNumSlices
+*     Number of slices for DSC.
+*   dscDuaDsc
+*     Flag to indicate if panel supports DSC streams from two DSI
+*     controllers.
+*   dscSliceHeight
+*     Height of DSC slices.
+*   dscBlockPrediction
+*     Flag to indicate if DSC Block Prediction needs to be enabled.
+*   dscDecoderVersionMajor
+*     Major version number of DSC decoder on Panel.
+*   dscDecoderVersionMinor
+*     Minor version number of DSC decoder on Panel.
+*   dscUseCustomPPS
+*     Flag to indicate if Panel uses custom PPS values which deviate from standard values.
+*   dscCustomPPSData
+*     32 bytes of custom PPS data required by Panel.
+*   dscEncoderCaps
+*     Capabilities of DSC encoder in SoC.
 *
 *  Possible status values returned are:
 *   NV_OK
@@ -1109,17 +1174,331 @@ typedef struct NV0073_CTRL_CMD_DFP_GET_DISP_MUX_STATUS_PARAMS {
 
 #define NV0073_CTRL_CMD_DFP_GET_DSI_MODE_TIMING         (0x731166U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_CMD_DFP_GET_DSI_MODE_TIMING_PARAMS_MESSAGE_ID" */
 
+#define NV0073_CTRL_CMD_DFP_DSI_CUSTOM_PPS_DATA_COUNT   32U
+
 #define NV0073_CTRL_CMD_DFP_GET_DSI_MODE_TIMING_PARAMS_MESSAGE_ID (0x66U)
 
 typedef struct NV0073_CTRL_CMD_DFP_GET_DSI_MODE_TIMING_PARAMS {
-    NvU32 subDeviceInstance;
-    NvU32 displayId;
-    NvU32 hActive;
-    NvU32 vActive;
-    NvU32 bpp;
-    NvU32 refresh;
+    NvU32                          subDeviceInstance;
+    NvU32                          displayId;
+    NvU32                          hActive;
+    NvU32                          vActive;
+    NvU32                          hFrontPorch;
+    NvU32                          vFrontPorch;
+    NvU32                          hBackPorch;
+    NvU32                          vBackPorch;
+    NvU32                          hSyncWidth;
+    NvU32                          vSyncWidth;
+    NvU32                          bpp;
+    NvU32                          refresh;
+    NvU32                          pclkHz;
+    NvU32                          numLanes;
+    NvU32                          dscEnable;
+    NvU32                          dscBpp;
+    NvU32                          dscNumSlices;
+    NvU32                          dscDualDsc;
+    NvU32                          dscSliceHeight;
+    NvU32                          dscBlockPrediction;
+    NvU32                          dscDecoderVersionMajor;
+    NvU32                          dscDecoderVersionMinor;
+    NvBool                         dscUseCustomPPS;
+    NvU32                          dscCustomPPSData[NV0073_CTRL_CMD_DFP_DSI_CUSTOM_PPS_DATA_COUNT];
+    NV0073_CTRL_CMD_DSC_CAP_PARAMS dscEncoderCaps;
 } NV0073_CTRL_CMD_DFP_GET_DSI_MODE_TIMING_PARAMS;
 
 
+
+/*
+ * NV0073_CTRL_CMD_DFP_GET_FIXED_MODE_TIMING
+ *
+ * This control call is used to retrieve the display mode timing info that's
+ * specified for a given DFP from an offline configuration blob (e.g., Device Tree).
+ * This display timing info is intended to replace the timings exposed in a
+ * sink's EDID.
+ *
+ * subDeviceInstance (in)
+ *   This parameter specifies the subdevice instance within the
+ *   NV04_DISPLAY_COMMON parent device to which the operation should be
+ *   directed.
+ * displayId (in)
+ *   ID of the display device for which the timings should be retrieved.
+ * stream (in)
+ *   For MST connectors with static topologies (e.g., DP serializers),
+ *   this parameter further identifies the video stream for which the
+ *   timings should be retrieved.
+ * valid (out)
+ *   Indicates whether a valid display timing was found for this DFP.
+ * hActive (out)
+ *   Horizontal active width in pixels
+ * hFrontPorch (out)
+ *   Horizontal front porch
+ * hSyncWidth (out)
+ *   Horizontal sync width
+ * hBackPorch (out)
+ *   Horizontal back porch
+ * vActive (out)
+ *   Vertical active height in lines
+ * vFrontPorch (out)
+ *   Vertical front porch
+ * vSyncWidth (out)
+ *   Vertical sync width
+ * vBackPorch (out)
+ *   Vertical back porch
+ * pclkKHz (out)
+ *   Pixel clock frequency in KHz
+ * rrx1k (out)
+ *   Refresh rate in units of 0.001Hz
+* x (out)
+*   x offset inside superframe at which this view starts
+ * y (out)
+*   y offset inside superframe at which this view starts
+ * width (out)
+*   Horizontal active width in pixels for this view
+* height (out)
+*   Vertical active height in lines for this view
+ *
+ * Possible status values returned are:
+ *   NV_OK
+ *   NV_ERR_INVALID_ARGUMENT
+ *   NV_ERR_NOT_SUPPORTED
+ */
+#define NV0073_CTRL_CMD_DFP_GET_FIXED_MODE_TIMING              (0x731172) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8 | NV0073_CTRL_DFP_GET_FIXED_MODE_TIMING_PARAMS_MESSAGE_ID)" */
+
+#define NV0073_CTRL_DFP_FIXED_MODE_TIMING_MAX_SUPERFRAME_VIEWS 4U
+
+#define NV0073_CTRL_DFP_GET_FIXED_MODE_TIMING_PARAMS_MESSAGE_ID (0x72U)
+
+typedef struct NV0073_CTRL_DFP_GET_FIXED_MODE_TIMING_PARAMS {
+    NvU32  subDeviceInstance;
+    NvU32  displayId;
+    NvU8   stream;
+
+    NvBool valid;
+
+    NvU16  hActive;
+    NvU16  hFrontPorch;
+    NvU16  hSyncWidth;
+    NvU16  hBackPorch;
+
+    NvU16  vActive;
+    NvU16  vFrontPorch;
+    NvU16  vSyncWidth;
+    NvU16  vBackPorch;
+
+    NvU32  pclkKHz;
+    NvU32  rrx1k;
+
+    struct {
+        NvU8 numViews;
+        struct {
+            NvU16 x;
+            NvU16 y;
+            NvU16 width;
+            NvU16 height;
+        } view[NV0073_CTRL_DFP_FIXED_MODE_TIMING_MAX_SUPERFRAME_VIEWS];
+    } superframeInfo;
+} NV0073_CTRL_DFP_GET_FIXED_MODE_TIMING_PARAMS;
+
+
+
+/*
+ * NV0073_CTRL_DFP_ENTER_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA
+ *
+ * This structure describes diagnostic information about display power
+ * gating entry sequence
+ *
+ *   totalRmEntryLatencyUs
+ *     Duration in microseconds that RM took to service 'Enter
+ *     Display Power Gating' command. This includes time for all
+ *     steps that RM performs as part of display power gating entry
+ *     sequence including the below parameters.
+ *   hwOkToGateLatencyUs
+ *     Duration in microseconds that HW took to assert ok_to_gate.
+ *     Only valid when displayId is not equal to 0xFFFFFFFF
+ *   carApiLatencyUs
+ *     Duration in microseconds that CAR (Clock and Reset) block took to
+ *     service 'Enter Display Power Gating' command
+ *
+ */
+
+typedef struct NV0073_CTRL_DFP_ENTER_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA {
+    NvU32 totalRmEntryLatencyUs;
+    NvU32 hwOkToGateLatencyUs;
+    NvU32 carEntryApiLatencyUs;
+} NV0073_CTRL_DFP_ENTER_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA;
+
+/*
+ *  NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING
+ *
+ * This command can be used to enter display power gating with an option to
+ * save-restore settings for the specified displayId.
+ *
+ *   subDeviceInstance
+ *     This parameter specifies the subdevice instance within the
+ *     NV04_DISPLAY_COMMON parent device to which the operation should be
+ *     directed. This parameter must specify a value between zero and the
+ *     total number of subdevices within the parent device. This parameter
+ *     should be set to zero for default behavior.
+ *   displayId
+ *     This parameter specifies the ID of the display for which the state
+ *     needs to be saved-restored during exit of Display Power Gating.
+ *     The display ID must be a dfp display as determined with the
+ *     NV0073_CTRL_CMD_SPECIFIC_GET_TYPE command. If more than one
+ *     displayId bit is set or the displayId is not a dfp, this call will
+ *     return NV_ERR_INVALID_ARGUMENT. For the case where no save-restore
+ *     is needed, displayId should be set to 0xFFFFFFFF.
+ *   flags
+ *     This parameter specifies special request from client for RM(for future use)
+ *   diagnosticData
+ *     This parameter provides diagnostic information about display power
+ *     gating entry sequence
+ *
+ * Possible status values returned are:
+ *   NV_OK - If Display Power Gating Entry was successful
+ *   NV_ERR_GENERIC - If Display Power Gating Entry failed
+ *   NV_ERR_INVALID_ARGUMENT - If incorrect parameters are sent
+ */
+#define NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING (0x731174U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING_PARAMS_MESSAGE_ID" */
+
+#define NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING_PARAMS_MESSAGE_ID (0x74U)
+
+typedef struct NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING_PARAMS {
+    NvU32                                                      subDeviceInstance;
+    NvU32                                                      displayId;
+    NvU32                                                      flag;
+    NV0073_CTRL_DFP_ENTER_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA diagnosticData;
+} NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING_PARAMS;
+
+#define NV0073_CTRL_DFP_ENTER_DISPLAY_POWER_GATING_FLAGS_RESERVED       31:0
+#define NV0073_CTRL_DFP_ENTER_DISPLAY_POWER_GATING_FLAGS_RESERVED_INIT (0x00000000U)
+
+/*
+ * NV0073_CTRL_DFP_EXIT_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA
+ *
+ * This structure describes diagnostic information about display power
+ * gating exit sequence
+ *
+ *   totalRmExitLatencyUs
+ *     Duration in microseconds that RM took to service 'Exit
+ *     Display Power Gating' command. This includes time for all
+ *     steps that RM performs as part of display power gating exit
+ *     sequence including the below parameters.
+ *   riscvBootupLatencyUs
+ *     Duration in microseconds that LTM RISCV took to bootup.
+ *   carExitApiLatencyUs
+ *     Duration in microseconds that CAR (Clock and Reset) block took
+ *     to service 'Exit Display Power Gating' command
+ *
+ */
+typedef struct NV0073_CTRL_DFP_EXIT_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA {
+    NvU32 totalRmExitLatencyUs;
+    NvU32 riscvBootupLatencyUs;
+    NvU32 carExitApiLatencyUs;
+} NV0073_CTRL_DFP_EXIT_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA;
+
+/*
+ * NV0073_CTRL_CMD_DFP_EXIT_DISPLAY_POWER_GATING
+ *
+ * This command can be used to exit display power gating. If preceding
+ * NV0073_CTRL_CMD_DFP_ENTER_DISPLAY_POWER_GATING command requested for
+ * save-restore of settings for a particular displayId then this command
+ * will restore settings for that displayId.
+ *
+ *   subDeviceInstance
+ *     This parameter specifies the subdevice instance within the
+ *     NV04_DISPLAY_COMMON parent device to which the operation should be
+ *     directed. This parameter must specify a value between zero and the
+ *     total number of subdevices within the parent device. This parameter
+ *     should be set to zero for default behavior.
+ *   flags
+ *     This parameter specifies special request from client for RM(for future use)
+ *   diagnosticData
+ *     This parameter provides diagnostic information about display power
+ *     gating exit sequence
+ *
+ * Possible status values returned are:
+ *   NV_OK - When Display Power Gating Exit was successful
+ *   NV_ERR_GENERIC - When Display Power Gating Exit failed
+ *   NV_ERR_INVALID_ARGUMENT - When incorrect parameters are sent
+ */
+
+#define NV0073_CTRL_CMD_DFP_EXIT_DISPLAY_POWER_GATING (0x731175U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_CMD_DFP_EXIT_DISPLAY_POWER_GATING_PARAMS_MESSAGE_ID" */
+
+#define NV0073_CTRL_CMD_DFP_EXIT_DISPLAY_POWER_GATING_PARAMS_MESSAGE_ID (0x75U)
+
+typedef struct NV0073_CTRL_CMD_DFP_EXIT_DISPLAY_POWER_GATING_PARAMS {
+    NvU32                                                     subDeviceInstance;
+    NvU32                                                     flag;
+    NV0073_CTRL_DFP_EXIT_DISPLAY_POWER_GATING_DIAGNOSTIC_DATA diagnosticData;
+} NV0073_CTRL_CMD_DFP_EXIT_DISPLAY_POWER_GATING_PARAMS;
+
+#define NV0073_CTRL_DFP_EXIT_DISPLAY_POWER_GATING_FLAGS_RESERVED       31:0
+#define NV0073_CTRL_DFP_EXIT_DISPLAY_POWER_GATING_FLAGS_RESERVED_INIT (0x00000000U)
+
+/*
+ * NV0073_CTRL_CMD_DFP_EDP_DRIVER_UNLOAD
+ *
+ * This command is called when we want to inform RM of driver
+ * unload.
+ *
+ *    subDeviceInstance (in)
+ *        This parameter specifies the subdevice instance within the
+ *        NV04_DISPLAY_COMMON parent device to which the operation
+ *        should be directed.
+ *    displayId (in)
+ *        This parameter inputs the displayId of the active display. A value
+ *        of zero indicates no display is active.
+ *
+ * Possible status values returned are:
+ *    NV_OK
+ *    NV_ERR_INVALID_PARAM_STRUCT
+ *    NV_ERR_INVALID_ARGUMENT
+ *    NV_ERR_NOT_SUPPORTED
+ */
+#define NV0073_CTRL_CMD_DFP_EDP_DRIVER_UNLOAD                         (0x731176U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_DFP_EDP_DRIVER_UNLOAD_PARAMS_MESSAGE_ID" */
+
+#define NV0073_CTRL_DFP_EDP_DRIVER_UNLOAD_PARAMS_MESSAGE_ID (0x76U)
+
+typedef struct NV0073_CTRL_DFP_EDP_DRIVER_UNLOAD_PARAMS {
+    NvU32 subDeviceInstance;
+    NvU32 displayId;
+} NV0073_CTRL_DFP_EDP_DRIVER_UNLOAD_PARAMS;
+
+
+
+/*
+ * NV0073_CTRL_CMD_DFP_SET_FORCE_BLACK_PIXELS
+ *
+ * This command is used to force black pixels from postcomp.
+ *
+ *   subDeviceInstance
+ *     This parameter specifies the subdevice instance within the
+ *     NV04_DISPLAY_COMMON parent device to which the operation should be
+ *     directed. This parameter must specify a value between zero and the
+ *     total number of subdevices within the parent device.  This parameter
+ *     should be set to zero for default behavior.
+ *
+ *   displayId
+ *     DisplayId of the connected display.
+ *
+ *   bForceBlackPixels
+ *     To enable or disable black pixel generation.
+ *
+ * Possible status values returned are:
+ *      NV_OK
+ *      NV_ERR_INVALID_ARGUMENT
+ *      NV_ERR_NOT_SUPPORTED
+ *
+ */
+#define NV0073_CTRL_CMD_DFP_SET_FORCE_BLACK_PIXELS (0x731179U) /* finn: Evaluated from "(FINN_NV04_DISPLAY_COMMON_DFP_INTERFACE_ID << 8) | NV0073_CTRL_DFP_SET_FORCE_BLACK_PIXELS_PARAMS_MESSAGE_ID" */
+
+#define NV0073_CTRL_DFP_SET_FORCE_BLACK_PIXELS_PARAMS_MESSAGE_ID (0x79U)
+
+typedef struct NV0073_CTRL_DFP_SET_FORCE_BLACK_PIXELS_PARAMS {
+    NvU32  subDeviceInstance;
+    NvU32  displayId;
+    NvU32  head;
+    NvBool bForceBlack;
+} NV0073_CTRL_DFP_SET_FORCE_BLACK_PIXELS_PARAMS;
 
 /* _ctrl0073dfp_h_ */

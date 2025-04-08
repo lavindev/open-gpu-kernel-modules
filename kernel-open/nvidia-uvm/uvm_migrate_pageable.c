@@ -1,5 +1,5 @@
 /*******************************************************************************
-    Copyright (c) 2018-2022 NVIDIA Corporation
+    Copyright (c) 2018-2024 NVIDIA Corporation
 
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to
@@ -49,13 +49,9 @@ static NV_STATUS migrate_vma_page_copy_address(struct page *page,
                                                uvm_gpu_address_t *gpu_addr)
 {
     uvm_va_space_t *va_space = state->uvm_migrate_args->va_space;
-    uvm_gpu_t *owning_gpu = UVM_ID_IS_CPU(resident_id)? NULL: uvm_va_space_get_gpu(va_space, resident_id);
+    uvm_gpu_t *owning_gpu = UVM_ID_IS_CPU(resident_id)? NULL: uvm_gpu_get(resident_id);
     const bool can_copy_from = uvm_processor_mask_test(&va_space->can_copy_from[uvm_id_value(copying_gpu->id)],
                                                        resident_id);
-    const bool direct_peer = owning_gpu &&
-                             (owning_gpu != copying_gpu) &&
-                             can_copy_from &&
-                             !uvm_gpu_peer_caps(owning_gpu, copying_gpu)->is_indirect_peer;
 
     UVM_ASSERT(page_index < state->num_pages);
 
@@ -63,18 +59,15 @@ static NV_STATUS migrate_vma_page_copy_address(struct page *page,
 
     if (owning_gpu == copying_gpu) {
         // Local vidmem address
-        *gpu_addr = uvm_gpu_address_from_phys(uvm_gpu_page_to_phys_address(owning_gpu, page));
+        *gpu_addr = uvm_gpu_address_copy(owning_gpu, uvm_gpu_page_to_phys_address(owning_gpu, page));
     }
-    else if (direct_peer) {
-        // Direct GPU peer
-        uvm_gpu_identity_mapping_t *gpu_peer_mappings = uvm_gpu_get_peer_mapping(copying_gpu, owning_gpu->id);
+    else if (owning_gpu && can_copy_from) {
         uvm_gpu_phys_address_t phys_addr = uvm_gpu_page_to_phys_address(owning_gpu, page);
 
-        *gpu_addr = uvm_gpu_address_virtual(gpu_peer_mappings->base + phys_addr.address);
+        *gpu_addr = uvm_gpu_peer_copy_address(owning_gpu, phys_addr.address, copying_gpu);
     }
     else {
-        // Sysmem/Indirect Peer
-        NV_STATUS status = uvm_gpu_map_cpu_page(copying_gpu, page, &state->dma.addrs[page_index]);
+        NV_STATUS status = uvm_parent_gpu_map_cpu_page(copying_gpu->parent, page, &state->dma.addrs[page_index]);
 
         if (status != NV_OK)
             return status;
@@ -88,23 +81,11 @@ static NV_STATUS migrate_vma_page_copy_address(struct page *page,
 
         __set_bit(page_index, state->dma.page_mask);
 
-        *gpu_addr = uvm_gpu_address_physical(UVM_APERTURE_SYS, state->dma.addrs[page_index]);
+        *gpu_addr = uvm_gpu_address_copy(copying_gpu,
+                                         uvm_gpu_phys_address(UVM_APERTURE_SYS, state->dma.addrs[page_index]));
     }
 
     return NV_OK;
-}
-
-// Return the GPU identified with the given NUMA node id
-static uvm_gpu_t *get_gpu_from_node_id(uvm_va_space_t *va_space, int node_id)
-{
-    uvm_gpu_t *gpu;
-
-    for_each_va_space_gpu(gpu, va_space) {
-        if (uvm_gpu_numa_info(gpu)->node_id == node_id)
-            return gpu;
-    }
-
-    return NULL;
 }
 
 // Create a new push to zero pages on dst_id
@@ -129,8 +110,8 @@ static NV_STATUS migrate_vma_zero_begin_push(uvm_va_space_t *va_space,
                           channel_type,
                           push,
                           "Zero %s from %s VMA region [0x%lx, 0x%lx]",
-                          uvm_va_space_processor_name(va_space, dst_id),
-                          uvm_va_space_processor_name(va_space, gpu->id),
+                          uvm_processor_get_name(dst_id),
+                          uvm_processor_get_name(gpu->id),
                           start,
                           outer);
 }
@@ -148,20 +129,20 @@ static NV_STATUS migrate_vma_copy_begin_push(uvm_va_space_t *va_space,
 
     UVM_ASSERT_MSG(!uvm_id_equal(src_id, dst_id),
                    "Unexpected copy to self, processor %s\n",
-                   uvm_va_space_processor_name(va_space, src_id));
+                   uvm_processor_get_name(src_id));
 
     if (UVM_ID_IS_CPU(src_id)) {
-        gpu = uvm_va_space_get_gpu(va_space, dst_id);
+        gpu = uvm_gpu_get(dst_id);
         channel_type = UVM_CHANNEL_TYPE_CPU_TO_GPU;
     }
     else if (UVM_ID_IS_CPU(dst_id)) {
-        gpu = uvm_va_space_get_gpu(va_space, src_id);
+        gpu = uvm_gpu_get(src_id);
         channel_type = UVM_CHANNEL_TYPE_GPU_TO_CPU;
     }
     else {
         // For GPU to GPU copies, prefer to "push" the data from the source as
         // that works better
-        gpu = uvm_va_space_get_gpu(va_space, src_id);
+        gpu = uvm_gpu_get(src_id);
 
         channel_type = UVM_CHANNEL_TYPE_GPU_TO_GPU;
     }
@@ -169,27 +150,27 @@ static NV_STATUS migrate_vma_copy_begin_push(uvm_va_space_t *va_space,
     // NUMA-enabled GPUs can copy to any other NUMA node in the system even if
     // P2P access has not been explicitly enabled (ie va_space->can_copy_from
     // is not set).
-    if (!gpu->parent->numa_info.enabled) {
+    if (!gpu->mem_info.numa.enabled) {
         UVM_ASSERT_MSG(uvm_processor_mask_test(&va_space->can_copy_from[uvm_id_value(gpu->id)], dst_id),
                        "GPU %s dst %s src %s\n",
-                       uvm_va_space_processor_name(va_space, gpu->id),
-                       uvm_va_space_processor_name(va_space, dst_id),
-                       uvm_va_space_processor_name(va_space, src_id));
+                       uvm_processor_get_name(gpu->id),
+                       uvm_processor_get_name(dst_id),
+                       uvm_processor_get_name(src_id));
         UVM_ASSERT_MSG(uvm_processor_mask_test(&va_space->can_copy_from[uvm_id_value(gpu->id)], src_id),
                        "GPU %s dst %s src %s\n",
-                       uvm_va_space_processor_name(va_space, gpu->id),
-                       uvm_va_space_processor_name(va_space, dst_id),
-                       uvm_va_space_processor_name(va_space, src_id));
+                       uvm_processor_get_name(gpu->id),
+                       uvm_processor_get_name(dst_id),
+                       uvm_processor_get_name(src_id));
     }
 
     if (channel_type == UVM_CHANNEL_TYPE_GPU_TO_GPU) {
-        uvm_gpu_t *dst_gpu = uvm_va_space_get_gpu(va_space, dst_id);
+        uvm_gpu_t *dst_gpu = uvm_gpu_get(dst_id);
         return uvm_push_begin_gpu_to_gpu(gpu->channel_manager,
                                          dst_gpu,
                                          push,
                                          "Copy from %s to %s for VMA region [0x%lx, 0x%lx]",
-                                         uvm_va_space_processor_name(va_space, src_id),
-                                         uvm_va_space_processor_name(va_space, dst_id),
+                                         uvm_processor_get_name(src_id),
+                                         uvm_processor_get_name(dst_id),
                                          start,
                                          outer);
     }
@@ -198,8 +179,8 @@ static NV_STATUS migrate_vma_copy_begin_push(uvm_va_space_t *va_space,
                           channel_type,
                           push,
                           "Copy from %s to %s for VMA region [0x%lx, 0x%lx]",
-                          uvm_va_space_processor_name(va_space, src_id),
-                          uvm_va_space_processor_name(va_space, dst_id),
+                          uvm_processor_get_name(src_id),
+                          uvm_processor_get_name(dst_id),
                           start,
                           outer);
 }
@@ -281,7 +262,7 @@ static void migrate_vma_compute_masks(struct vm_area_struct *vma, const unsigned
             continue;
         }
 
-        src_gpu = get_gpu_from_node_id(uvm_migrate_args->va_space, src_nid);
+        src_gpu = uvm_va_space_find_gpu_with_memory_node_id(uvm_migrate_args->va_space, src_nid);
 
         // Already resident on a node with no CPUs that doesn't belong to a
         // GPU, don't move
@@ -374,7 +355,7 @@ static NV_STATUS migrate_vma_populate_anon_pages(struct vm_area_struct *vma,
                     copying_gpu = uvm_va_space_find_first_gpu(va_space);
             }
             else {
-                copying_gpu = uvm_va_space_get_gpu(va_space, dst_id);
+                copying_gpu = uvm_gpu_get(dst_id);
             }
 
             UVM_ASSERT(copying_gpu);
@@ -417,6 +398,38 @@ static NV_STATUS migrate_vma_populate_anon_pages(struct vm_area_struct *vma,
     return status;
 }
 
+static NV_STATUS zero_non_failed_pages_in_mask(uvm_push_t *push,
+                                               const unsigned long *pfns,
+                                               unsigned long *page_mask,
+                                               unsigned long mask_size,
+                                               migrate_vma_state_t *state)
+{
+    unsigned long i;
+    uvm_migrate_args_t *uvm_migrate_args = state->uvm_migrate_args;
+    uvm_processor_id_t dst_id = uvm_migrate_args->dst_id;
+    uvm_gpu_t *zeroing_gpu = uvm_push_get_gpu(push);
+
+    for_each_set_bit(i, page_mask, mask_size) {
+        struct page *page;
+        uvm_gpu_address_t dst_address;
+        NV_STATUS status;
+
+        if (test_bit(i, state->allocation_failed_mask))
+            continue;
+
+        page = migrate_pfn_to_page(pfns[i]);
+        status = migrate_vma_page_copy_address(page, i, dst_id, zeroing_gpu, state, &dst_address);
+        if (status != NV_OK)
+            return status;
+
+        uvm_push_set_flag(push, UVM_PUSH_FLAG_CE_NEXT_PIPELINED);
+        uvm_push_set_flag(push, UVM_PUSH_FLAG_NEXT_MEMBAR_NONE);
+        zeroing_gpu->parent->ce_hal->memset_8(push, dst_address, 0, PAGE_SIZE);
+    }
+
+    return NV_OK;
+}
+
 static NV_STATUS migrate_vma_copy_pages_from(struct vm_area_struct *vma,
                                              const unsigned long *src,
                                              unsigned long *dst,
@@ -429,36 +442,82 @@ static NV_STATUS migrate_vma_copy_pages_from(struct vm_area_struct *vma,
     uvm_push_t push;
     unsigned long i;
     uvm_gpu_t *copying_gpu = NULL;
+    uvm_gpu_t *src_gpu = UVM_ID_IS_GPU(src_id) ? uvm_gpu_get(src_id) : NULL;
     uvm_migrate_args_t *uvm_migrate_args = state->uvm_migrate_args;
     uvm_processor_id_t dst_id = uvm_migrate_args->dst_id;
     unsigned long *page_mask = state->processors[uvm_id_value(src_id)].page_mask;
     uvm_va_space_t *va_space = uvm_migrate_args->va_space;
+    uvm_tracker_t zero_tracker = UVM_TRACKER_INIT();
 
     UVM_ASSERT(!bitmap_empty(page_mask, state->num_pages));
 
+    // Pre-allocate the dst pages and mark the ones that failed
     for_each_set_bit(i, page_mask, state->num_pages) {
-        uvm_gpu_address_t src_address;
-        uvm_gpu_address_t dst_address;
-        struct page *src_page = migrate_pfn_to_page(src[i]);
-        struct page *dst_page;
-
-        UVM_ASSERT(src[i] & MIGRATE_PFN_VALID);
-        UVM_ASSERT(src_page);
-
-        dst_page = migrate_vma_alloc_page(state);
+        struct page *dst_page = migrate_vma_alloc_page(state);
         if (!dst_page) {
             __set_bit(i, state->allocation_failed_mask);
             continue;
         }
 
+        lock_page(dst_page);
+        dst[i] = migrate_pfn(page_to_pfn(dst_page));
+    }
+
+    // Zero destination pages in case of NVLINK copy that can hit STO or XC,
+    // or in case of injected unresolved NVLINK error.
+    // TODO: Bug 4922701: [uvm] Re-evaluate STO handling for ATS migrations
+    //       This can be removed if the false-positive rate of STO
+    //       fast-path is low enough to prefer failing the copy when an STO
+    //       fast-path error is detected.
+    if (UVM_ID_IS_GPU(src_id) &&
+        UVM_ID_IS_GPU(dst_id) &&
+        ((src_gpu->nvlink_status.enabled &&
+        (uvm_parent_gpu_peer_link_type(src_gpu->parent, uvm_gpu_get(dst_id)->parent) >= UVM_GPU_LINK_NVLINK_5)) ||
+        uvm_gpu_get_injected_nvlink_error(src_gpu) == NV_WARN_MORE_PROCESSING_REQUIRED)) {
+        uvm_gpu_t *dst_gpu = uvm_gpu_get(dst_id);
+        uvm_push_t zero_push;
+        
+        status = migrate_vma_zero_begin_push(va_space, dst_id, dst_gpu, start, outer - 1, &zero_push);
+        if (status != NV_OK)
+            return status;
+
+        status = zero_non_failed_pages_in_mask(&zero_push, dst, page_mask, state->num_pages, state);
+
+        uvm_push_end(&zero_push);
+
+        if (status == NV_OK)
+            status = uvm_tracker_add_push_safe(&zero_tracker, &zero_push);
+
+        if (status != NV_OK)
+            return status;
+    }
+
+    for_each_set_bit(i, page_mask, state->num_pages) {
+        uvm_gpu_address_t src_address;
+        uvm_gpu_address_t dst_address;
+        struct page *src_page = migrate_pfn_to_page(src[i]);
+        struct page *dst_page = migrate_pfn_to_page(dst[i]);
+
+        if (test_bit(i, state->allocation_failed_mask))
+            continue;
+
+        UVM_ASSERT(src[i] & MIGRATE_PFN_VALID);
+        UVM_ASSERT(src_page);
+        UVM_ASSERT(dst[i] & MIGRATE_PFN_VALID);
+        UVM_ASSERT(dst_page);
+
         if (!copying_gpu) {
             status = migrate_vma_copy_begin_push(va_space, dst_id, src_id, start, outer - 1, &push);
-            if (status != NV_OK) {
-                __free_page(dst_page);
-                return status;
-            }
+            if (status != NV_OK)
+                break;
 
             copying_gpu = uvm_push_get_gpu(&push);
+            if (src_gpu)
+                UVM_ASSERT(src_gpu == copying_gpu);
+
+            // The zero tracker will be empty if zeroing is not necessary
+            uvm_push_acquire_tracker(&push, &zero_tracker);
+            uvm_tracker_deinit(&zero_tracker);
         }
         else {
             uvm_push_set_flag(&push, UVM_PUSH_FLAG_CE_NEXT_PIPELINED);
@@ -470,18 +529,12 @@ static NV_STATUS migrate_vma_copy_pages_from(struct vm_area_struct *vma,
         if (status == NV_OK)
             status = migrate_vma_page_copy_address(dst_page, i, dst_id, copying_gpu, state, &dst_address);
 
-        if (status != NV_OK) {
-            __free_page(dst_page);
+        if (status != NV_OK)
             break;
-        }
-
-        lock_page(dst_page);
 
         // We'll push one membar later for all copies in this loop
         uvm_push_set_flag(&push, UVM_PUSH_FLAG_NEXT_MEMBAR_NONE);
         copying_gpu->parent->ce_hal->memcopy(&push, dst_address, src_address, PAGE_SIZE);
-
-        dst[i] = migrate_pfn(page_to_pfn(dst_page));
     }
 
     // TODO: Bug 1766424: If the destination is a GPU and the copy was done by
@@ -519,12 +572,29 @@ static NV_STATUS migrate_vma_copy_pages(struct vm_area_struct *vma,
     return NV_OK;
 }
 
-void uvm_migrate_vma_alloc_and_copy(struct migrate_vma *args, migrate_vma_state_t *state)
+static void migrate_vma_cleanup_pages(unsigned long *dst, unsigned long npages)
+{
+    unsigned long i;
+
+    for (i = 0; i < npages; i++) {
+        struct page *dst_page = migrate_pfn_to_page(dst[i]);
+
+        if (!dst_page)
+            continue;
+
+        unlock_page(dst_page);
+        __free_page(dst_page);
+        dst[i] = 0;
+    }
+}
+
+static void migrate_vma_alloc_and_copy(struct migrate_vma *args, migrate_vma_state_t *state)
 {
     struct vm_area_struct *vma = args->vma;
     unsigned long start = args->start;
     unsigned long outer = args->end;
     NV_STATUS tracker_status;
+    uvm_migrate_args_t *uvm_migrate_args = state->uvm_migrate_args;
 
     uvm_tracker_init(&state->tracker);
 
@@ -543,14 +613,53 @@ void uvm_migrate_vma_alloc_and_copy(struct migrate_vma *args, migrate_vma_state_
 
     if (state->status == NV_OK)
         state->status = tracker_status;
+
+    // Check if the copy might have been impacted by NVLINK errors.
+    if (state->status == NV_OK) {
+        uvm_processor_id_t src_id;
+
+        for_each_id_in_mask(src_id, &state->src_processors) {
+            NV_STATUS status;
+
+            // Skip CPU source, even if for some reason the operation went over
+            // NVLINK, it'd be a read and hit poison.
+            if (UVM_ID_IS_CPU(src_id))
+                continue;
+
+            UVM_ASSERT(UVM_ID_IS_GPU(src_id));
+            status = uvm_gpu_check_nvlink_error_no_rm(uvm_gpu_get(src_id));
+
+            // Set state->status to the first error if there's an NVLINK error.
+            // Do not report NV_WARN_MORE_PROCESSING_REQUIRED. The call to the
+            // uvm_migrate_vma_copy_pages above zeroed the destination.
+            // Thus in case of real STO error zeroed pages will be mapped.
+            if (state->status == NV_OK && status != NV_WARN_MORE_PROCESSING_REQUIRED)
+                state->status = status;
+
+            // Record unresolved GPU errors if the caller can use the information
+            if (status == NV_WARN_MORE_PROCESSING_REQUIRED) {
+                if (uvm_migrate_args->gpus_to_check_for_nvlink_errors)
+                    uvm_processor_mask_set(uvm_migrate_args->gpus_to_check_for_nvlink_errors, src_id);
+
+                // fail the copy if requested by the caller
+                if (uvm_migrate_args->fail_on_unresolved_sto_errors && state->status == NV_OK)
+                    state->status = NV_ERR_BUSY_RETRY;
+            }
+        }
+    }
+
+    // Mark all pages as not migrating if we're failing
+    if (state->status != NV_OK)
+        migrate_vma_cleanup_pages(args->dst, state->num_pages);
 }
 
-void uvm_migrate_vma_alloc_and_copy_helper(struct vm_area_struct *vma,
-                                const unsigned long *src,
-                                unsigned long *dst,
-                                unsigned long start,
-                                unsigned long end,
-                                void *private)
+#if defined(CONFIG_MIGRATE_VMA_HELPER)
+static void migrate_vma_alloc_and_copy_helper(struct vm_area_struct *vma,
+                                              const unsigned long *src,
+                                              unsigned long *dst,
+                                              unsigned long start,
+                                              unsigned long end,
+                                              void *private)
 {
     struct migrate_vma args =
     {
@@ -561,10 +670,11 @@ void uvm_migrate_vma_alloc_and_copy_helper(struct vm_area_struct *vma,
         .end = end,
     };
 
-    uvm_migrate_vma_alloc_and_copy(&args, (migrate_vma_state_t *) private);
+    migrate_vma_alloc_and_copy(&args, (migrate_vma_state_t *) private);
 }
+#endif
 
-void uvm_migrate_vma_finalize_and_map(struct migrate_vma *args, migrate_vma_state_t *state)
+static void uvm_migrate_vma_finalize_and_map(struct migrate_vma *args, migrate_vma_state_t *state)
 {
     unsigned long i;
 
@@ -628,18 +738,19 @@ void uvm_migrate_vma_finalize_and_map(struct migrate_vma *args, migrate_vma_stat
     if (state->dma.num_pages > 0) {
 
         for_each_set_bit(i, state->dma.page_mask, state->num_pages)
-            uvm_gpu_unmap_cpu_page(state->dma.addrs_gpus[i], state->dma.addrs[i]);
+            uvm_parent_gpu_unmap_cpu_page(state->dma.addrs_gpus[i]->parent, state->dma.addrs[i]);
     }
 
     UVM_ASSERT(!bitmap_intersects(state->populate_pages_mask, state->allocation_failed_mask, state->num_pages));
 }
 
-void uvm_migrate_vma_finalize_and_map_helper(struct vm_area_struct *vma,
-                                             const unsigned long *src,
-                                             const unsigned long *dst,
-                                             unsigned long start,
-                                             unsigned long end,
-                                             void *private)
+#if defined(CONFIG_MIGRATE_VMA_HELPER)
+static void migrate_vma_finalize_and_map_helper(struct vm_area_struct *vma,
+                                                const unsigned long *src,
+                                                const unsigned long *dst,
+                                                unsigned long start,
+                                                unsigned long end,
+                                                void *private)
 {
     struct migrate_vma args =
     {
@@ -652,6 +763,7 @@ void uvm_migrate_vma_finalize_and_map_helper(struct vm_area_struct *vma,
 
     uvm_migrate_vma_finalize_and_map(&args, (migrate_vma_state_t *) private);
 }
+#endif
 
 static NV_STATUS nv_migrate_vma(struct migrate_vma *args, migrate_vma_state_t *state)
 {
@@ -660,8 +772,8 @@ static NV_STATUS nv_migrate_vma(struct migrate_vma *args, migrate_vma_state_t *s
 #if defined(CONFIG_MIGRATE_VMA_HELPER)
     static const struct migrate_vma_ops uvm_migrate_vma_ops =
     {
-        .alloc_and_copy = uvm_migrate_vma_alloc_and_copy_helper,
-        .finalize_and_map = uvm_migrate_vma_finalize_and_map_helper,
+        .alloc_and_copy = migrate_vma_alloc_and_copy_helper,
+        .finalize_and_map = migrate_vma_finalize_and_map_helper,
     };
 
     ret = migrate_vma(&uvm_migrate_vma_ops, args->vma, args->start, args->end, args->src, args->dst, state);
@@ -677,7 +789,7 @@ static NV_STATUS nv_migrate_vma(struct migrate_vma *args, migrate_vma_state_t *s
     if (ret < 0)
         return errno_to_nv_status(ret);
 
-    uvm_migrate_vma_alloc_and_copy(args, state);
+    migrate_vma_alloc_and_copy(args, state);
     if (state->status == NV_OK) {
         migrate_vma_pages(args);
         uvm_migrate_vma_finalize_and_map(args, state);
@@ -814,7 +926,7 @@ static NV_STATUS migrate_pageable_vma_region(struct vm_area_struct *vma,
         // If the destination is the CPU, signal user-space to retry with a
         // different node. Otherwise, just try to populate anywhere in the
         // system
-        if (UVM_ID_IS_CPU(uvm_migrate_args->dst_id)) {
+        if (UVM_ID_IS_CPU(uvm_migrate_args->dst_id) && !uvm_migrate_args->populate_on_cpu_alloc_failures) {
             *next_addr = start + find_first_bit(state->scratch2_mask, num_pages) * PAGE_SIZE;
             return NV_ERR_MORE_PROCESSING_REQUIRED;
         }
@@ -824,6 +936,17 @@ static NV_STATUS migrate_pageable_vma_region(struct vm_area_struct *vma,
                 return status;
         }
     }
+
+    return NV_OK;
+}
+
+NV_STATUS uvm_test_skip_migrate_vma(UVM_TEST_SKIP_MIGRATE_VMA_PARAMS *params, struct file *filp)
+{
+    uvm_va_space_t *va_space = uvm_va_space_get(filp);
+
+    uvm_va_space_down_write(va_space);
+    va_space->test.skip_migrate_vma = params->skip;
+    uvm_va_space_up_write(va_space);
 
     return NV_OK;
 }
@@ -849,6 +972,17 @@ static NV_STATUS migrate_pageable_vma(struct vm_area_struct *vma,
     // Adjust to input range boundaries
     start = max(start, vma->vm_start);
     outer = min(outer, vma->vm_end);
+
+    if (va_space->test.skip_migrate_vma)
+        return NV_WARN_NOTHING_TO_DO;
+
+    // This isn't the right path for a UVM-owned vma. In most cases the callers
+    // will take the correct (managed) path, but we can get here if invoked on a
+    // disabled vma (see uvm_disable_vma()) that has no VA range but still has a
+    // vma. This could cause locking issues if the caller has the VA space
+    // locked and we invoke a UVM fault handler, so avoid it entirely.
+    if (uvm_file_is_nvidia_uvm(vma->vm_file))
+        return NV_ERR_INVALID_ADDRESS;
 
     // TODO: Bug 2419180: support file-backed pages in migrate_vma, when
     //       support for it is added to the Linux kernel
@@ -908,11 +1042,13 @@ static NV_STATUS migrate_pageable(migrate_vma_state_t *state)
 
         status = migrate_pageable_vma(vma, start, outer, state, &next_addr);
         if (status == NV_WARN_NOTHING_TO_DO) {
-            NV_STATUS populate_status = NV_OK;
+            NV_STATUS populate_status;
             bool touch = uvm_migrate_args->touch;
             uvm_populate_permissions_t populate_permissions = uvm_migrate_args->populate_permissions;
 
-            UVM_ASSERT(!vma_is_anonymous(vma) || uvm_processor_mask_empty(&va_space->registered_gpus));
+            UVM_ASSERT(va_space->test.skip_migrate_vma ||
+                       !vma_is_anonymous(vma) ||
+                       uvm_processor_mask_empty(&va_space->registered_gpus));
 
             // We can't use migrate_vma to move the pages as desired. Normally
             // this fallback path is supposed to populate the memory then inform
@@ -926,8 +1062,16 @@ static NV_STATUS migrate_pageable(migrate_vma_state_t *state)
             if (current->mm != mm && !(current->flags & PF_KTHREAD))
                 return NV_ERR_NOT_SUPPORTED;
 
-            // Populate pages with uvm_populate_pageable
-            populate_status = uvm_populate_pageable_vma(vma, start, length, 0, touch, populate_permissions);
+            // Populate pages with uvm_populate_pageable if requested.
+            if (uvm_migrate_args->populate_on_migrate_vma_failures) {
+                populate_status = uvm_populate_pageable_vma(vma, start, length, 0, touch, populate_permissions);
+            }
+            else {
+                *user_space_start = start;
+                *user_space_length = outer - start;
+                populate_status = NV_WARN_NOTHING_TO_DO;
+            }
+
             if (populate_status == NV_OK) {
                 *user_space_start = max(vma->vm_start, start);
                 *user_space_length = min(vma->vm_end, outer) - *user_space_start;
@@ -961,32 +1105,23 @@ NV_STATUS uvm_migrate_pageable(uvm_migrate_args_t *uvm_migrate_args)
 {
     migrate_vma_state_t *state = NULL;
     NV_STATUS status;
-    uvm_va_space_t *va_space = uvm_migrate_args->va_space;
     uvm_processor_id_t dst_id = uvm_migrate_args->dst_id;
-    int dst_node_id = uvm_migrate_args->dst_node_id;
 
     UVM_ASSERT(PAGE_ALIGNED(uvm_migrate_args->start));
     UVM_ASSERT(PAGE_ALIGNED(uvm_migrate_args->length));
     uvm_assert_mmap_lock_locked(uvm_migrate_args->mm);
 
     if (UVM_ID_IS_CPU(dst_id)) {
-        // We only check that dst_node_id is a valid node in the system and it
-        // doesn't correspond to a GPU node. This is fine because
-        // alloc_pages_node will clamp the allocation to
-        // cpuset_current_mems_allowed, and uvm_migrate_pageable is only called
-        // from process context (uvm_migrate) when dst_id is CPU. UVM bottom
-        // half never calls uvm_migrate_pageable when dst_id is CPU. So, assert
-        // that we're in a user thread. However, this would need to change if we
-        // wanted to call this function from a bottom half with CPU dst_id.
-        UVM_ASSERT(!(current->flags & PF_KTHREAD));
-
-        if (!nv_numa_node_has_memory(dst_node_id) || get_gpu_from_node_id(va_space, dst_node_id) != NULL)
+        if (uvm_migrate_args->dst_node_id == -1)
             return NV_ERR_INVALID_ARGUMENT;
     }
     else {
+        uvm_gpu_t *gpu = uvm_gpu_get(dst_id);
+
         // Incoming dst_node_id is only valid if dst_id belongs to the CPU. Use
         // dst_node_id as the GPU node id if dst_id doesn't belong to the CPU.
-        uvm_migrate_args->dst_node_id = uvm_gpu_numa_info(uvm_va_space_get_gpu(va_space, dst_id))->node_id;
+        UVM_ASSERT(gpu->mem_info.numa.enabled);
+        uvm_migrate_args->dst_node_id = uvm_gpu_numa_node(gpu);
     }
 
     state = kmem_cache_alloc(g_uvm_migrate_vma_state_cache, NV_UVM_GFP_FLAGS);
@@ -1001,7 +1136,7 @@ NV_STATUS uvm_migrate_pageable(uvm_migrate_args_t *uvm_migrate_args)
     return status;
 }
 
-NV_STATUS uvm_migrate_pageable_init()
+NV_STATUS uvm_migrate_pageable_init(void)
 {
     g_uvm_migrate_vma_state_cache = NV_KMEM_CACHE_CREATE("migrate_vma_state_t", migrate_vma_state_t);
     if (!g_uvm_migrate_vma_state_cache)
@@ -1010,7 +1145,7 @@ NV_STATUS uvm_migrate_pageable_init()
     return NV_OK;
 }
 
-void uvm_migrate_pageable_exit()
+void uvm_migrate_pageable_exit(void)
 {
     kmem_cache_destroy_safe(&g_uvm_migrate_vma_state_cache);
 }

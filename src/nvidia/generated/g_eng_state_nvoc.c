@@ -57,6 +57,10 @@ const struct NVOC_CLASS_DEF __nvoc_class_def_OBJENGSTATE =
     /*pExportInfo=*/        &__nvoc_export_info_OBJENGSTATE
 };
 
+// Down-thunk(s) to bridge OBJENGSTATE methods from ancestors (if any)
+
+// Up-thunk(s) to bridge OBJENGSTATE methods to ancestors (if any)
+
 const struct NVOC_EXPORT_INFO __nvoc_export_info_OBJENGSTATE = 
 {
     /*numEntries=*/     0,
@@ -88,51 +92,35 @@ __nvoc_ctor_OBJENGSTATE_exit:
     return status;
 }
 
+// Vtable initialization
 static void __nvoc_init_funcTable_OBJENGSTATE_1(OBJENGSTATE *pThis) {
     PORT_UNREFERENCED_VARIABLE(pThis);
+} // End __nvoc_init_funcTable_OBJENGSTATE_1
 
-    pThis->__engstateConstructEngine__ = &engstateConstructEngine_IMPL;
 
-    pThis->__engstateInitMissing__ = &engstateInitMissing_IMPL;
-
-    pThis->__engstateStatePreInitLocked__ = &engstateStatePreInitLocked_IMPL;
-
-    pThis->__engstateStatePreInitUnlocked__ = &engstateStatePreInitUnlocked_IMPL;
-
-    pThis->__engstateStateInitLocked__ = &engstateStateInitLocked_IMPL;
-
-    pThis->__engstateStateInitUnlocked__ = &engstateStateInitUnlocked_IMPL;
-
-    pThis->__engstateStatePreLoad__ = &engstateStatePreLoad_IMPL;
-
-    pThis->__engstateStateLoad__ = &engstateStateLoad_IMPL;
-
-    pThis->__engstateStatePostLoad__ = &engstateStatePostLoad_IMPL;
-
-    pThis->__engstateStatePreUnload__ = &engstateStatePreUnload_IMPL;
-
-    pThis->__engstateStateUnload__ = &engstateStateUnload_IMPL;
-
-    pThis->__engstateStatePostUnload__ = &engstateStatePostUnload_IMPL;
-
-    pThis->__engstateStateDestroy__ = &engstateStateDestroy_IMPL;
-
-    pThis->__engstateAllocTunableState__ = &engstateAllocTunableState_IMPL;
-
-    pThis->__engstateFreeTunableState__ = &engstateFreeTunableState_IMPL;
-
-    pThis->__engstateGetTunableState__ = &engstateGetTunableState_IMPL;
-
-    pThis->__engstateSetTunableState__ = &engstateSetTunableState_IMPL;
-
-    pThis->__engstateReconcileTunableState__ = &engstateReconcileTunableState_IMPL;
-
-    pThis->__engstateCompareTunableState__ = &engstateCompareTunableState_IMPL;
-
-    pThis->__engstateIsPresent__ = &engstateIsPresent_IMPL;
-}
-
+// Initialize vtable(s) for 14 virtual method(s).
 void __nvoc_init_funcTable_OBJENGSTATE(OBJENGSTATE *pThis) {
+
+    // Per-class vtable definition
+    static const struct NVOC_VTABLE__OBJENGSTATE vtable = {
+        .__engstateConstructEngine__ = &engstateConstructEngine_IMPL,    // virtual
+        .__engstateInitMissing__ = &engstateInitMissing_IMPL,    // virtual
+        .__engstateStatePreInitLocked__ = &engstateStatePreInitLocked_IMPL,    // virtual
+        .__engstateStatePreInitUnlocked__ = &engstateStatePreInitUnlocked_IMPL,    // virtual
+        .__engstateStateInitLocked__ = &engstateStateInitLocked_IMPL,    // virtual
+        .__engstateStateInitUnlocked__ = &engstateStateInitUnlocked_IMPL,    // virtual
+        .__engstateStatePreLoad__ = &engstateStatePreLoad_IMPL,    // virtual
+        .__engstateStateLoad__ = &engstateStateLoad_IMPL,    // virtual
+        .__engstateStatePostLoad__ = &engstateStatePostLoad_IMPL,    // virtual
+        .__engstateStatePreUnload__ = &engstateStatePreUnload_IMPL,    // virtual
+        .__engstateStateUnload__ = &engstateStateUnload_IMPL,    // virtual
+        .__engstateStatePostUnload__ = &engstateStatePostUnload_IMPL,    // virtual
+        .__engstateStateDestroy__ = &engstateStateDestroy_IMPL,    // virtual
+        .__engstateIsPresent__ = &engstateIsPresent_IMPL,    // virtual
+    };
+
+    // Pointer(s) to per-class vtable(s)
+    pThis->__nvoc_vtable = &vtable;    // (engstate) this
     __nvoc_init_funcTable_OBJENGSTATE_1(pThis);
 }
 
@@ -144,18 +132,26 @@ void __nvoc_init_OBJENGSTATE(OBJENGSTATE *pThis) {
     __nvoc_init_funcTable_OBJENGSTATE(pThis);
 }
 
-NV_STATUS __nvoc_objCreate_OBJENGSTATE(OBJENGSTATE **ppThis, Dynamic *pParent, NvU32 createFlags) {
+NV_STATUS __nvoc_objCreate_OBJENGSTATE(OBJENGSTATE **ppThis, Dynamic *pParent, NvU32 createFlags)
+{
     NV_STATUS status;
-    Object *pParentObj;
+    Object *pParentObj = NULL;
     OBJENGSTATE *pThis;
 
-    pThis = portMemAllocNonPaged(sizeof(OBJENGSTATE));
-    if (pThis == NULL) return NV_ERR_NO_MEMORY;
+    // Assign `pThis`, allocating memory unless suppressed by flag.
+    status = __nvoc_handleObjCreateMemAlloc(createFlags, sizeof(OBJENGSTATE), (void**)&pThis, (void**)ppThis);
+    if (status != NV_OK)
+        return status;
 
+    // Zero is the initial value for everything.
     portMemSet(pThis, 0, sizeof(OBJENGSTATE));
 
+    // Initialize runtime type information.
     __nvoc_initRtti(staticCast(pThis, Dynamic), &__nvoc_class_def_OBJENGSTATE);
 
+    pThis->__nvoc_base_Object.createFlags = createFlags;
+
+    // Link the child into the parent if there is one unless flagged not to do so.
     if (pParent != NULL && !(createFlags & NVOC_OBJ_CREATE_FLAGS_PARENT_HALSPEC_ONLY))
     {
         pParentObj = dynamicCast(pParent, Object);
@@ -170,12 +166,27 @@ NV_STATUS __nvoc_objCreate_OBJENGSTATE(OBJENGSTATE **ppThis, Dynamic *pParent, N
     status = __nvoc_ctor_OBJENGSTATE(pThis);
     if (status != NV_OK) goto __nvoc_objCreate_OBJENGSTATE_cleanup;
 
+    // Assignment has no effect if NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT is set.
     *ppThis = pThis;
+
     return NV_OK;
 
 __nvoc_objCreate_OBJENGSTATE_cleanup:
-    // do not call destructors here since the constructor already called them
-    portMemFree(pThis);
+
+    // Unlink the child from the parent if it was linked above.
+    if (pParentObj != NULL)
+        objRemoveChild(pParentObj, &pThis->__nvoc_base_Object);
+
+    // Do not call destructors here since the constructor already called them.
+    if (createFlags & NVOC_OBJ_CREATE_FLAGS_IN_PLACE_CONSTRUCT)
+        portMemSet(pThis, 0, sizeof(OBJENGSTATE));
+    else
+    {
+        portMemFree(pThis);
+        *ppThis = NULL;
+    }
+
+    // coverity[leaked_storage:FALSE]
     return status;
 }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1993-2018 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1993-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -64,7 +64,11 @@ void      bindataRelease(PBINDATA_RUNTIME_INFO pBinInfo);
 //
 NV_STATUS bindataWriteToBuffer(const BINDATA_STORAGE *pBinStorage, NvU8 *pBuffer, NvU32 bufferSize);
 NvU32     bindataGetBufferSize(const BINDATA_STORAGE *pBinStorage);
+NV_STATUS bindataStorageAcquireData(const BINDATA_STORAGE *pBinStorage, const void **ppData);
+void bindataStorageReleaseData(void *pData);
 
+void bindataInitialize(void);
+void bindataDestroy(void);
 
 //
 // Bindata Archive support
@@ -96,11 +100,11 @@ const BINDATA_STORAGE * bindataArchiveGetStorage(const BINDATA_ARCHIVE *pBinArch
 //        do_stuff(datablock, size);
 //    }
 //
-void* bindataGetNextUnreferencedStorage(const BINDATA_STORAGE **iter, NvU32 *pDataSize);
+void* bindataGetNextUnreferencedStorage(NvU32 *pIdx, NvU32 *pDataSize);
 //
 // Marks a given BINDATA_STORAGE as destroyed, making all subsequent attempts
 // to access it fail and return NULL/0
 //
-void bindataDestroyStorage(BINDATA_STORAGE *storage);
+void bindataDestroyStorage(NvU32 idx);
 
 #endif // _BINDATA_H

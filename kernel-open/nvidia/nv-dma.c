@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 1999-2015 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 1999-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -197,8 +197,7 @@ NV_STATUS nv_create_dma_map_scatterlist(nv_dma_map_t *dma_map)
             break;
         }
 
-#if !defined(NV_SG_ALLOC_TABLE_FROM_PAGES_PRESENT) || \
-    defined(NV_DOM0_KERNEL_PRESENT)
+#if defined(NV_DOM0_KERNEL_PRESENT)
         {
             NvU64 page_idx = NV_DMA_SUBMAP_IDX_TO_PAGE_IDX(i);
             nv_fill_scatterlist(submap->sgt.sgl,
@@ -291,7 +290,7 @@ void nv_destroy_dma_map_scatterlist(nv_dma_map_t *dma_map)
     os_free_mem(dma_map->mapping.discontig.submaps);
 }
 
-void nv_load_dma_map_scatterlist(
+static void nv_load_dma_map_scatterlist(
     nv_dma_map_t *dma_map,
     NvU64 *va_array
 )
@@ -371,67 +370,6 @@ static void nv_dma_unmap_scatterlist(nv_dma_map_t *dma_map)
     nv_destroy_dma_map_scatterlist(dma_map);
 }
 
-static void nv_dma_nvlink_addr_compress
-(
-    nv_dma_device_t *dma_dev,
-    NvU64           *va_array,
-    NvU64            page_count,
-    NvBool           contig
-)
-{
-#if defined(NVCPU_PPC64LE)
-    NvU64 addr = 0;
-    NvU64 i;
-
-    /*
-     * On systems that support NVLink sysmem links, apply the required address
-     * compression scheme when links are trained. Otherwise check that PCIe and
-     * NVLink DMA mappings are equivalent as per requirements of Bug 1920398.
-     */
-    if (dma_dev->nvlink)
-    {
-        for (i = 0; i < (contig ? 1 : page_count); i++)
-        {
-            va_array[i] = nv_compress_nvlink_addr(va_array[i]);
-        }
-
-        return;
-    }
-
-    for (i = 0; i < (contig ? 1 : page_count); i++)
-    {
-        addr = nv_compress_nvlink_addr(va_array[i]);
-        if (WARN_ONCE(va_array[i] != addr,
-                      "unexpected DMA address compression (0x%llx, 0x%llx)\n",
-                      va_array[i], addr))
-        {
-            break;
-        }
-    }
-#endif
-}
-
-static void nv_dma_nvlink_addr_decompress
-(
-    nv_dma_device_t *dma_dev,
-    NvU64           *va_array,
-    NvU64            page_count,
-    NvBool           contig
-)
-{
-#if defined(NVCPU_PPC64LE)
-    NvU64 i;
-
-    if (dma_dev->nvlink)
-    {
-        for (i = 0; i < (contig ? 1 : page_count); i++)
-        {
-            va_array[i] = nv_expand_nvlink_addr(va_array[i]);
-        }
-    }
-#endif
-}
-
 NV_STATUS NV_API_CALL nv_dma_map_sgt(
     nv_dma_device_t *dma_dev,
     NvU64            page_count,
@@ -448,7 +386,7 @@ NV_STATUS NV_API_CALL nv_dma_map_sgt(
         return NV_ERR_NOT_SUPPORTED;
     }
 
-    if (page_count > os_get_num_phys_pages())
+    if (page_count > NV_NUM_PHYSPAGES)
     {
         NV_DMA_DEV_PRINTF(NV_DBG_ERRORS, dma_dev,
                 "DMA mapping request too large!\n");
@@ -480,14 +418,12 @@ NV_STATUS NV_API_CALL nv_dma_map_sgt(
     else
     {
         *priv = dma_map;
-        nv_dma_nvlink_addr_compress(dma_dev, va_array, dma_map->page_count,
-                                    dma_map->contiguous);
     }
 
     return status;
 }
 
-NV_STATUS NV_API_CALL nv_dma_unmap_sgt(
+static NV_STATUS NV_API_CALL nv_dma_unmap_sgt(
     nv_dma_device_t *dma_dev,
     void           **priv
 )
@@ -510,7 +446,7 @@ NV_STATUS NV_API_CALL nv_dma_unmap_sgt(
     return NV_OK;
 }
 
-NV_STATUS NV_API_CALL nv_dma_map_pages(
+static NV_STATUS NV_API_CALL nv_dma_map_pages(
     nv_dma_device_t *dma_dev,
     NvU64            page_count,
     NvU64           *va_array,
@@ -531,7 +467,7 @@ NV_STATUS NV_API_CALL nv_dma_map_pages(
         return NV_ERR_NOT_SUPPORTED;
     }
 
-    if (page_count > os_get_num_phys_pages())
+    if (page_count > NV_NUM_PHYSPAGES)
     {
         NV_DMA_DEV_PRINTF(NV_DBG_ERRORS, dma_dev,
                 "DMA mapping request too large!\n");
@@ -576,14 +512,12 @@ NV_STATUS NV_API_CALL nv_dma_map_pages(
     else
     {
         *priv = dma_map;
-        nv_dma_nvlink_addr_compress(dma_dev, va_array, dma_map->page_count,
-                                    dma_map->contiguous);
     }
 
     return status;
 }
 
-NV_STATUS NV_API_CALL nv_dma_unmap_pages(
+static NV_STATUS NV_API_CALL nv_dma_unmap_pages(
     nv_dma_device_t *dma_dev,
     NvU64            page_count,
     NvU64           *va_array,
@@ -603,7 +537,7 @@ NV_STATUS NV_API_CALL nv_dma_unmap_pages(
 
     dma_map = *priv;
 
-    if (page_count > os_get_num_phys_pages())
+    if (page_count > NV_NUM_PHYSPAGES)
     {
         NV_DMA_DEV_PRINTF(NV_DBG_ERRORS, dma_dev,
                 "DMA unmapping request too large!\n");
@@ -774,14 +708,16 @@ static NvBool nv_dma_use_map_resource
     nv_dma_device_t *dma_dev
 )
 {
+#if defined(NV_DMA_MAP_RESOURCE_PRESENT)
+    const struct dma_map_ops *ops = get_dma_ops(dma_dev->dev);
+#endif
+
     if (nv_dma_remap_peer_mmio == NV_DMA_REMAP_PEER_MMIO_DISABLE)
     {
         return NV_FALSE;
     }
 
 #if defined(NV_DMA_MAP_RESOURCE_PRESENT)
-    const struct dma_map_ops *ops = get_dma_ops(dma_dev->dev);
-
     if (ops == NULL)
     {
         /* On pre-5.0 kernels, if dma_map_resource() is present, then we
@@ -806,13 +742,14 @@ NV_STATUS NV_API_CALL nv_dma_map_peer
 (
     nv_dma_device_t *dma_dev,
     nv_dma_device_t *peer_dma_dev,
-    NvU8             bar_index,
+    NvU8             nv_bar_index,
     NvU64            page_count,
     NvU64           *va
 )
 {
     struct pci_dev *peer_pci_dev = to_pci_dev(peer_dma_dev->dev);
     struct resource *res;
+    NvU8 bar_index;
     NV_STATUS status;
 
     if (peer_pci_dev == NULL)
@@ -822,7 +759,7 @@ NV_STATUS NV_API_CALL nv_dma_map_peer
         return NV_ERR_INVALID_REQUEST;
     }
 
-    BUG_ON(bar_index >= NV_GPU_NUM_BARS);
+    bar_index = nv_bar_index_to_os_bar_index(peer_pci_dev, nv_bar_index);
     res = &peer_pci_dev->resource[bar_index];
     if (res->start == 0)
     {
@@ -852,7 +789,7 @@ NV_STATUS NV_API_CALL nv_dma_map_peer
          * convert to a bus address.
          */
         NvU64 offset = *va - res->start;
-        *va = nv_pci_bus_address(peer_pci_dev, bar_index) + offset;
+        *va = pci_bus_address(peer_pci_dev, bar_index) + offset;
         status = NV_OK;
     }
 
@@ -906,8 +843,6 @@ NV_STATUS NV_API_CALL nv_dma_map_mmio
         *va = *va + dma_dev->addressable_range.start;
     }
 
-    nv_dma_nvlink_addr_compress(dma_dev, va, page_count, NV_TRUE);
-
     return NV_OK;
 #else
     return NV_ERR_NOT_SUPPORTED;
@@ -922,8 +857,6 @@ void NV_API_CALL nv_dma_unmap_mmio
 )
 {
 #if defined(NV_DMA_MAP_RESOURCE_PRESENT)
-    nv_dma_nvlink_addr_decompress(dma_dev, &va, page_count, NV_TRUE);
-
     if (nv_dma_use_map_resource(dma_dev))
     {
         dma_unmap_resource(dma_dev->dev, va, page_count * PAGE_SIZE,
@@ -970,15 +903,6 @@ void NV_API_CALL nv_dma_cache_invalidate
         }
     }
 #endif
-}
-
-/* Enable DMA-mapping over NVLink */
-void NV_API_CALL nv_dma_enable_nvlink
-(
-    nv_dma_device_t *dma_dev
-)
-{
-    dma_dev->nvlink = NV_TRUE;
 }
 
 #if defined(NV_LINUX_DMA_BUF_H_PRESENT) && \
@@ -1087,224 +1011,3 @@ void NV_API_CALL nv_dma_release_sgt
 {
 }
 #endif /* NV_LINUX_DMA_BUF_H_PRESENT && NV_DRM_AVAILABLE && NV_DRM_DRM_GEM_H_PRESENT */
-
-#if defined(NV_LINUX_DMA_BUF_H_PRESENT)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#endif /* NV_LINUX_DMA_BUF_H_PRESENT */
-
-#ifndef IMPORT_DMABUF_FUNCTIONS_DEFINED
-
-NV_STATUS NV_API_CALL nv_dma_import_dma_buf
-(
-    nv_dma_device_t *dma_dev,
-    struct dma_buf *dma_buf,
-    NvU32 *size,
-    void **user_pages,
-    struct sg_table **sgt,
-    nv_dma_buf_t **import_priv
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-NV_STATUS NV_API_CALL nv_dma_import_from_fd
-(
-    nv_dma_device_t *dma_dev,
-    NvS32 fd,
-    NvU32 *size,
-    void **user_pages,
-    struct sg_table **sgt,
-    nv_dma_buf_t **import_priv
-)
-{
-    return NV_ERR_NOT_SUPPORTED;
-}
-
-void NV_API_CALL nv_dma_release_dma_buf
-(
-    void *user_pages,
-    nv_dma_buf_t *import_priv
-)
-{
-}
-#endif /* !IMPORT_DMABUF_FUNCTIONS_DEFINED */

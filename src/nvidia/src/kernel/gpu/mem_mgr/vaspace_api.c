@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2012-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2012-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: MIT
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
@@ -41,10 +41,10 @@
 #include "vgpu/rpc.h"
 
 /* ------------------ static and helper functions prototypes------------------*/
-static NvU32 translateAllocFlagsToVASpaceFlags(NvU32 allocFlags, NvU32 *translatedFlags);
+static NvU32 translateAllocFlagsToVASpaceFlags(NvU32 allocFlags, NvU32 *translatedFlags,
+                                               NvBool bKernelClient, NvU32 gfid);
 static NvU32 translatePageSizeToVASpaceFlags(NV_VASPACE_ALLOCATION_PARAMETERS *pNvVASpaceAllocParams);
-static void destroyMemDesc(Device *pDevice, NvHandle hVASpace);
-static NV_STATUS _vaspaceapiManagePageLevelsForSplitVaSpace(OBJGPU *pGpu, NvHandle hClient, NvU32 gpuMask, NvU32 flags, VASPACEAPI_MANAGE_PAGE_LEVELS_ACTION action);
+static NV_STATUS _vaspaceapiManagePageLevelsForSplitVaSpace(OBJGPU *pGpu, Device *pDevice, NvU32 gpuMask, NvU32 flags, VASPACEAPI_MANAGE_PAGE_LEVELS_ACTION action);
 
 NvBool
 vaspaceapiCanCopy_IMPL(VaSpaceApi *pResource)
@@ -60,14 +60,12 @@ vaspaceapiConstruct_IMPL
     RS_RES_ALLOC_PARAMS_INTERNAL *pParams
 )
 {
-    NvHandle                          hClient               = pCallContext->pClient->hClient;
     RsResourceRef                    *pResourceRef          = pCallContext->pResourceRef;
     NvHandle                          hParent               = pResourceRef->pParentRef->hResource;
     NV_VASPACE_ALLOCATION_PARAMETERS *pNvVASpaceAllocParams;
     NvU32                             allocFlags;
     NvU32                             flags                 = 0;
     NvU32                             gpuMask               = 0;
-    NvU32                             gpuMaskInitial        = 0;
     OBJVMM                           *pVmm                  = SYS_GET_VMM(SYS_GET_INSTANCE());
     OBJVASPACE                       *pVAS                  = NULL;
     NvU64                             vasLimit              = 0;
@@ -77,49 +75,53 @@ vaspaceapiConstruct_IMPL
     OBJGPU                           *pGpu                  = GPU_RES_GET_GPU(pVaspaceApi);
     KernelBus                        *pKernelBus            = GPU_GET_KERNEL_BUS(pGpu);
     OBJGPUGRP                        *pGpuGrp               = GPU_RES_GET_GPUGRP(pVaspaceApi);
-    Device                           *pDevice;
+    Device                           *pDevice               = GPU_RES_GET_DEVICE(pVaspaceApi);
     NvBool                            bLockAcquired         = NV_FALSE;
     MemoryManager                    *pMemoryManager        = GPU_GET_MEMORY_MANAGER(pGpu);
     KernelMIGManager                 *pKernelMIGManager     = GPU_GET_KERNEL_MIG_MANAGER(pGpu);
+    NvU64                             originalVaBase;
+    NvU64                             originalVaSize;
+    NvU32                             gfid                  = 0;
+
+    if (rmGpuLockIsOwner() && rmapiInRtd3PmPath())
+    {
+        //
+        // RTD3 exit codepath may only take the GPU lock, hence it becomes
+        // necessary to release the GPU lock here.
+        //
+        rmGpuLocksRelease(GPUS_LOCK_FLAGS_NONE, NULL);
+    }
 
     if (RS_IS_COPY_CTOR(pParams))
     {
-        if (!rmGpuGroupLockIsOwner(pGpu->gpuInstance, GPU_LOCK_GRP_ALL, &gpuMask))
-        {
-            //
-            // If we hold some GPU locks already then acquiring more GPU locks
-            // may violate lock ordering and cause dead-lock. To avoid dead-lock in this case,
-            // attempt to take the locks with a conditional acquire.
-            //
-            gpuMaskInitial = rmGpuLocksGetOwnedMask();
-            NvU32 lockFlag = (gpuMaskInitial == 0)
-                ? GPUS_LOCK_FLAGS_NONE
-                : GPUS_LOCK_FLAGS_COND_ACQUIRE;
-
-            NV_ASSERT_OK_OR_RETURN(rmGpuGroupLockAcquire(pGpu->gpuInstance,
-                                                         GPU_LOCK_GRP_ALL,
-                                                         lockFlag,
-                                                         RM_LOCK_MODULES_MEM,
-                                                         &gpuMask));
-
-            bLockAcquired = NV_TRUE;
-        }
+        NV_ASSERT_OK_OR_RETURN(rmGpuGroupLockAcquire(pGpu->gpuInstance,
+                                                     GPU_LOCK_GRP_ALL,
+                                                     GPU_LOCK_FLAGS_SAFE_LOCK_UPGRADE,
+                                                     RM_LOCK_MODULES_MEM,
+                                                     &gpuMask));
 
         status = vaspaceapiCopyConstruct_IMPL(pVaspaceApi, pCallContext, pParams);
 
-        if (bLockAcquired)
-            rmGpuGroupLockRelease(gpuMask & (~gpuMaskInitial), GPUS_LOCK_FLAGS_NONE);
+        rmGpuGroupLockRelease(gpuMask, GPUS_LOCK_FLAGS_NONE);
 
         return status;
     }
 
+    if (gpuIsSriovEnabled(pGpu))
+        NV_ASSERT_OK_OR_RETURN(vgpuGetCallingContextGfid(pGpu, &gfid));
+
     pNvVASpaceAllocParams = pParams->pAllocParams;
     allocFlags            = pNvVASpaceAllocParams->flags;
 
-    // Translate & validate flags
-    NV_CHECK_OK_OR_RETURN(LEVEL_WARNING, translateAllocFlagsToVASpaceFlags(allocFlags, &flags));
+    // These input parameters get overwritten later but original values are needed
+    originalVaBase = pNvVASpaceAllocParams->vaBase;
+    originalVaSize = pNvVASpaceAllocParams->vaSize;
 
-    NV_ASSERT_OK_OR_RETURN(deviceGetByGpu(pCallContext->pClient, pGpu, NV_TRUE, &pDevice));
+    // Translate & validate flags
+    NV_CHECK_OK_OR_RETURN(LEVEL_WARNING,
+                          translateAllocFlagsToVASpaceFlags(allocFlags, &flags,
+                                                            (pCallContext->secInfo.privLevel >=
+                                                             RS_PRIV_LEVEL_KERNEL), gfid));
 
     //
     // Make sure this GPU is not already locked by this thread
@@ -130,7 +132,7 @@ vaspaceapiConstruct_IMPL
     if (rmDeviceGpuLockIsOwner(pGpu->gpuInstance))
     {
         NV_PRINTF(LEVEL_ERROR, "VASpace alloc should be called without acquiring GPU lock\n");
-        LOCK_ASSERT_AND_RETURN(0);
+        NV_ASSERT_OR_RETURN(0, NV_ERR_INVALID_LOCK_STATE);
     }
 
     if (pNvVASpaceAllocParams->index == NV_VASPACE_ALLOCATION_INDEX_GPU_HOST)
@@ -142,7 +144,17 @@ vaspaceapiConstruct_IMPL
         gpuMask = gpumgrGetGpuMask(pGpu);
     }
 
-    status = _vaspaceapiManagePageLevelsForSplitVaSpace(pGpu, hClient, gpuMask, flags, VASPACEAPI_MANAGE_PAGE_LEVELS_RESERVE);
+    if ((pMemoryManager != NULL) &&
+        memmgrIsPmaInitialized(pMemoryManager) &&
+        memmgrAreClientPageTablesPmaManaged(pMemoryManager) &&
+        !(allocFlags & NV_VASPACE_ALLOCATION_FLAGS_IS_EXTERNALLY_OWNED) &&
+        !(allocFlags & NV_VASPACE_ALLOCATION_FLAGS_IS_FLA) &&
+        !(allocFlags & NV_VASPACE_ALLOCATION_FLAGS_PTETABLE_HEAP_MANAGED))
+    {
+        flags |= VASPACE_FLAGS_PTETABLE_PMA_MANAGED;
+    }
+
+    status = _vaspaceapiManagePageLevelsForSplitVaSpace(pGpu, pDevice, gpuMask, flags, VASPACEAPI_MANAGE_PAGE_LEVELS_RESERVE);
     NV_ASSERT_OR_RETURN(status == NV_OK, status);
 
     //--------------------------------------------------------------------------------
@@ -190,7 +202,7 @@ vaspaceapiConstruct_IMPL
     {
         MIG_INSTANCE_REF ref;
         NV_CHECK_OK_OR_GOTO(status, LEVEL_ERROR,
-            kmigmgrGetInstanceRefFromClient(pGpu, pKernelMIGManager, hClient, &ref),
+            kmigmgrGetInstanceRefFromDevice(pGpu, pKernelMIGManager, pDevice, &ref),
             done);
     }
 
@@ -219,7 +231,7 @@ vaspaceapiConstruct_IMPL
             {
                 // In case of SR-IOV, the BAR1 and FLA is managed by the guest. So, no need
                 // to communicate with the host for BAR1 and FLA VA.
-                if ((pNvVASpaceAllocParams->index == NV_VASPACE_ALLOCATION_INDEX_GPU_HOST))
+                if (pNvVASpaceAllocParams->index == NV_VASPACE_ALLOCATION_INDEX_GPU_HOST)
                     bSendRPC = NV_FALSE;
             }
 
@@ -237,6 +249,7 @@ vaspaceapiConstruct_IMPL
                                    pParams->hResource,
                                    pParams->externalClassId,
                                    pNvVASpaceAllocParams,
+                                   sizeof(*pNvVASpaceAllocParams),
                                    status);
             if (status != NV_OK)
             {
@@ -316,46 +329,40 @@ vaspaceapiConstruct_IMPL
             }
         }
 
-        if ((pMemoryManager != NULL) &&
-            memmgrIsPmaInitialized(pMemoryManager) &&
-            memmgrAreClientPageTablesPmaManaged(pMemoryManager) &&
-            !(allocFlags & NV_VASPACE_ALLOCATION_FLAGS_IS_EXTERNALLY_OWNED) &&
-            !(allocFlags & NV_VASPACE_ALLOCATION_FLAGS_IS_FLA))
-        {
-            flags |= VASPACE_FLAGS_PTETABLE_PMA_MANAGED;
-        }
-
         // Get flags for the requested big page size
         flags |= translatePageSizeToVASpaceFlags(pNvVASpaceAllocParams);
 
-        if (0 != pNvVASpaceAllocParams->vaSize)
+        if (originalVaSize != 0)
         {
-            // FLA VASpace can start from any base (!= 0)
-            if (flags & VASPACE_FLAGS_FLA)
+            vasLimit = originalVaBase + originalVaSize - 1;
+            if (vasLimit < originalVaBase)
             {
-                vasLimit = pNvVASpaceAllocParams->vaBase +
-                           pNvVASpaceAllocParams->vaSize - 1;
-                if (vasLimit < pNvVASpaceAllocParams->vaBase)
-                {
-                    NV_PRINTF(LEVEL_ERROR,
-                              "Integer overflow !!! Invalid parameters for vaBase:%llx, vaSize:%llx\n",
-                              pNvVASpaceAllocParams->vaBase,
-                              pNvVASpaceAllocParams->vaSize);
-                    status = NV_ERR_INVALID_ARGUMENT;
-                    NV_ASSERT_OR_GOTO(0, done);
-                }
+                NV_PRINTF(LEVEL_ERROR,
+                          "Integer overflow !!! Invalid parameters for vaBase:%llx, vaSize:%llx\n",
+                          originalVaBase,
+                          originalVaSize);
+                status = NV_ERR_INVALID_ARGUMENT;
+                NV_ASSERT_OR_GOTO(0, done);
             }
-            else
-            {
-                vasLimit = pNvVASpaceAllocParams->vaSize - 1;
-            }
+        }
+
+        //
+        // Bug 3610538 For unlinked SLI, clients want to restrict internal buffers to
+        // Internal VA range. setting internal va range to match what we use for
+        // windows.
+        //
+        if (allocFlags & NV_VASPACE_ALLOCATION_FLAGS_VA_INTERNAL_LIMIT)
+        {
+            vaStartInternal = SPLIT_VAS_SERVER_RM_MANAGED_VA_START;
+            vaLimitInternal = SPLIT_VAS_SERVER_RM_MANAGED_VA_START +
+                              SPLIT_VAS_SERVER_RM_MANAGED_VA_SIZE - 1;
         }
 
         // Finally call the factory
         status = vmmCreateVaspace(pVmm, pParams->externalClassId,
                                   pNvVASpaceAllocParams->index,
                                   gpuMask,
-                                  pNvVASpaceAllocParams->vaBase,
+                                  originalVaBase,
                                   vasLimit,
                                   vaStartInternal,
                                   vaLimitInternal,
@@ -367,7 +374,7 @@ vaspaceapiConstruct_IMPL
             NV_PRINTF(LEVEL_ERROR,
                       "Could not construct VA space. Status %x\n", status);
             pVAS = NULL;
-            NV_ASSERT_OR_GOTO(0, done);
+            goto done;
         }
     }
 
@@ -376,21 +383,21 @@ vaspaceapiConstruct_IMPL
     NV_PRINTF(LEVEL_INFO,
               "Created vaspaceapi 0x%x, hParent 0x%x, device 0x%x, client 0x%x, varef"
               " 0x%p, parentref 0x%p\n", pResourceRef->hResource, hParent,
-              RES_GET_HANDLE(pDevice), hClient, pResourceRef,
+              RES_GET_HANDLE(pDevice), RES_GET_CLIENT_HANDLE(pDevice), pResourceRef,
               pCallContext->pResourceRef->pParentRef);
 
     // Return the actual VAS base and size.
     pNvVASpaceAllocParams->vaBase = vaspaceGetVaStart(pVAS);
-    pNvVASpaceAllocParams->vaSize = vaspaceGetVaLimit(pVAS) + 1;
+    pNvVASpaceAllocParams->vaSize = (vaspaceGetVaLimit(pVAS) - pNvVASpaceAllocParams->vaBase) + 1;
 
 done:
     if (status == NV_OK)
     {
-        (void)_vaspaceapiManagePageLevelsForSplitVaSpace(pGpu, hClient, gpuMask, flags, VASPACEAPI_MANAGE_PAGE_LEVELS_TRIM);
+        (void)_vaspaceapiManagePageLevelsForSplitVaSpace(pGpu, pDevice, gpuMask, flags, VASPACEAPI_MANAGE_PAGE_LEVELS_TRIM);
     }
     else
     {
-        (void)_vaspaceapiManagePageLevelsForSplitVaSpace(pGpu, hClient, gpuMask, flags, VASPACEAPI_MANAGE_PAGE_LEVELS_RELEASE);
+        (void)_vaspaceapiManagePageLevelsForSplitVaSpace(pGpu, pDevice, gpuMask, flags, VASPACEAPI_MANAGE_PAGE_LEVELS_RELEASE);
     }
 
     if (bLockAcquired)
@@ -420,13 +427,9 @@ vaspaceapiCopyConstruct_IMPL
     NvHandle                       hParent = pCallContext->pResourceRef->pParentRef->hResource;
     NvHandle                      hVASpace = pCallContext->pResourceRef->hResource;
     OBJVASPACE                       *pVAS = pSrcVaspaceApi->pVASpace;
-    Device                       *pDevice;
     NvBool                          bFlaVA = NV_FALSE;
 
     NV_ASSERT_OR_RETURN(pVAS, NV_ERR_INVALID_ARGUMENT);
-
-    NV_ASSERT_OK_OR_RETURN(deviceGetByGpu(pCallContext->pClient, pGpu, NV_TRUE, &pDevice));
-
 
     bFlaVA = ((IS_VIRTUAL_WITH_SRIOV(pGpu) && !gpuIsWarBug200577889SriovHeavyEnabled(pGpu)) ||
                IS_GSP_CLIENT(pGpu)) &&
@@ -452,17 +455,11 @@ vaspaceapiCopyConstruct_IMPL
               "Shared vaspaceapi 0x%x, device 0x%x, client 0x%x, as vaspace 0x%x for "
               "hParent 0x%x device 0x%x client 0x%x varef 0x%p, deviceref 0x%p\n",
               hVASpaceSrc, pSrcRef->pParentRef->hResource, hClientSrc,
-              hVASpace, hParent, RES_GET_HANDLE(pDevice), hClient,
-              pCallContext->pResourceRef,
-              pCallContext->pResourceRef->pParentRef);
+              hVASpace, hParent, RES_GET_HANDLE(GPU_RES_GET_DEVICE(pVaspaceApi)),
+              hClient, pCallContext->pResourceRef, pCallContext->pResourceRef->pParentRef);
 
     vaspaceIncRefCnt(pVAS);
     pVaspaceApi->pVASpace = pVAS;
-    //
-    // Mark the VAS to be duped, so that we can free it when FLA Memory is freed
-    // This is hacked for now, to make sure the duped VAS is freed with the duped VA
-    //
-    pVaspaceApi->bDuped = NV_TRUE;
 
     return status;
 
@@ -481,8 +478,8 @@ vaspaceapiDestruct_IMPL(VaSpaceApi *pVaspaceApi)
     RsClient           *pRsClient;
     CALL_CONTEXT       *pCallContext;
     RS_RES_FREE_PARAMS_INTERNAL *pParams;
-    Device             *pDevice;
-    NvBool              bBar1VA      =  NV_FALSE;
+    Device             *pDevice      = GPU_RES_GET_DEVICE(pVaspaceApi);
+    NvBool              bBar1VA      = NV_FALSE;
     NvBool              bFlaVA       = NV_FALSE;
 
     GPU_RES_SET_THREAD_BC_STATE(pVaspaceApi);
@@ -492,17 +489,6 @@ vaspaceapiDestruct_IMPL(VaSpaceApi *pVaspaceApi)
     hClient   = pRsClient->hClient;
     hParent   = pCallContext->pResourceRef->pParentRef->hResource;
     hVASpace  = pCallContext->pResourceRef->hResource;
-
-    status = deviceGetByGpu(pCallContext->pClient, pGpu, NV_TRUE, &pDevice);
-    if (status != NV_OK)
-    {
-        NV_PRINTF(LEVEL_INFO,
-                  "No device found vaspaceapi 0x%x, hParent 0x%x, client 0x%x varef 0x%p,"
-                  " deviceref 0x%p\n", hVASpace, hParent, hClient,
-                  pCallContext->pResourceRef,
-                  pCallContext->pResourceRef->pParentRef);
-        return;
-    }
 
     if (IS_VIRTUAL_WITH_SRIOV(pGpu) && !gpuIsWarBug200577889SriovHeavyEnabled(pGpu))
     {
@@ -518,14 +504,23 @@ vaspaceapiDestruct_IMPL(VaSpaceApi *pVaspaceApi)
     pGVAS = dynamicCast(pVaspaceApi->pVASpace, OBJGVASPACE);
     if (pGVAS != NULL)
     {
-        (void)_vaspaceapiManagePageLevelsForSplitVaSpace(pGpu, hClient, pVaspaceApi->pVASpace->gpuMask, pGVAS->flags,
+        (void)_vaspaceapiManagePageLevelsForSplitVaSpace(pGpu, pDevice, pVaspaceApi->pVASpace->gpuMask, pGVAS->flags,
                                                          VASPACEAPI_MANAGE_PAGE_LEVELS_RELEASE);
     }
 
-    destroyMemDesc(pDevice, hVASpace);
+    if ((vaspaceGetFlags(pVaspaceApi->pVASpace) & VASPACE_FLAGS_FLA))
+    {
+        if (GPU_GET_KERNEL_BUS(pGpu)->flaInfo.pFlaVAS == NULL)
+        {
+            NV_PRINTF(LEVEL_INFO, "Skipping Legacy FLA vaspace destruct, gpu:%x \n",
+                      pGpu->gpuInstance);
+            goto skip_destroy;
+        }
+    }
 
     vmmDestroyVaspace(pVmm, pVaspaceApi->pVASpace);
 
+skip_destroy:
     //
     // RS-TODO: Move out to freeWithResServ?
     //
@@ -551,59 +546,14 @@ vaspaceapiDestruct_IMPL(VaSpaceApi *pVaspaceApi)
               pCallContext->pResourceRef->pParentRef);
 }
 
-/*--------------------------static and helper functions ----------------------*/
-// move this to Device
-/**
- * @brief Destroy associated memory with this vaspace.
- *
- * @param[in] pDevice  Pointer to Device instance
- * @param[in] hVASpace VASpace handle of the vaspace that will be deleted
- **/
-static void
-destroyMemDesc
-(
-    Device  *pDevice,
-    NvHandle hVASpace
-)
-{
-    VirtualMemory *pVirtualMemory = NULL;
-    RsClient      *pClient = RES_GET_CLIENT(pDevice);
-    NODE          *pNode = NULL;
-    RM_API        *pRmApi = rmapiGetInterface(RMAPI_GPU_LOCK_INTERNAL);
-
-    //
-    // RS-TODO: Convert to resource server dependency tracking system.
-    // stdmemConstruct calls add refAddDependant() but does it work properly for
-    // sharing (?)
-    //
-
-    // Check if any memory linked to this VASpace hasn't been freed.
-    btreeEnumStart(0, &pNode, pDevice->DevMemoryTable);
-    while (pNode != NULL)
-    {
-        Memory *pMemory = pNode->Data;
-        pVirtualMemory = dynamicCast(pMemory, VirtualMemory);
-        btreeEnumNext(&pNode, pDevice->DevMemoryTable);
-
-        if ((pVirtualMemory != NULL) &&
-            virtmemMatchesVASpace(pVirtualMemory, pClient->hClient, hVASpace))
-        {
-            // Free hMemory
-            pRmApi->Free(pRmApi, pClient->hClient, RES_GET_HANDLE(pVirtualMemory));
-
-            // Restart iteration as memory will be freed.
-            btreeEnumStart(0, &pNode, pDevice->DevMemoryTable);
-        }
-    }
-}
-
 /**
  * @brief Translate flags to vaspace equivalent flags and perform error check.
  *
  * @param[in] allocFlags  Client handle
  * @param[out] translatedFlags  The translated internal flags.
  **/
-static NV_STATUS translateAllocFlagsToVASpaceFlags(NvU32 allocFlags, NvU32 *translatedFlags)
+static NV_STATUS translateAllocFlagsToVASpaceFlags(NvU32 allocFlags, NvU32 *translatedFlags,
+                                                   NvBool bKernelClient, NvU32 gfid)
 {
     NV_STATUS status = NV_OK;
     NvU32     flags  = 0;
@@ -653,6 +603,14 @@ static NV_STATUS translateAllocFlagsToVASpaceFlags(NvU32 allocFlags, NvU32 *tran
     {
         flags |= VASPACE_FLAGS_OPTIMIZE_PTETABLE_MEMPOOL_USAGE;
     }
+    if (allocFlags & NV_VASPACE_ALLOCATION_FLAGS_REQUIRE_FIXED_OFFSET)
+    {
+        flags |= VASPACE_FLAGS_REQUIRE_FIXED_OFFSET;
+    }
+    if (allocFlags & NV_VASPACE_ALLOCATION_FLAGS_VA_INTERNAL_LIMIT)
+    {
+        flags |= VASPACE_FLAGS_RESTRICTED_RM_INTERNAL_VALIMITS;
+    }
     flags |= VASPACE_FLAGS_ENABLE_VMM;
 
     // Validate the flag combinations
@@ -661,11 +619,21 @@ static NV_STATUS translateAllocFlagsToVASpaceFlags(NvU32 allocFlags, NvU32 *tran
             (flags & VASPACE_FLAGS_SET_MIRRORED)),
         NV_ERR_INVALID_ARGUMENT);
 
-    // MODs environment requires ATS to be enabled but RM to continue to own
-    // page table management
+    //
+    // MODS environment requires ATS to be enabled but RM to continue to own
+    // page table management with PASID coming from the MODS OS layer.
+    //
+    // For production driver, PASID comes from UVM via NV0080_CTRL_DMA_SET_PAGE_DIRECTORY
+    // and so only VASPACE_FLAGS_IS_EXTERNALLY_OWNED or VASPACE_FLAGS_SHARED_MANAGEMENT is
+    // supported which is where NV0080_CTRL_DMA_SET_PAGE_DIRECTORY happens.
+    // ATS on VASPACE_FLAGS_SHARED_MANAGEMENT is allowed only when it is from
+    // kernel client(UVM) or for VF context (where vaspace is allocated in the host for a
+    // kernel client created vaspace within the VF's VM).
+    //
     NV_CHECK_OR_RETURN(LEVEL_WARNING,
         !((flags & VASPACE_FLAGS_ENABLE_ATS) &&
-            !(flags & VASPACE_FLAGS_IS_EXTERNALLY_OWNED)),
+            !((flags & VASPACE_FLAGS_IS_EXTERNALLY_OWNED) ||
+              ((flags & VASPACE_FLAGS_SHARED_MANAGEMENT) && (bKernelClient || IS_GFID_VF(gfid))))),
         NV_ERR_INVALID_ARGUMENT);
     //
     // 1766112: Prevent channels in fault-capable VAS from running unless bound
@@ -717,7 +685,7 @@ static NvU32 translatePageSizeToVASpaceFlags(NV_VASPACE_ALLOCATION_PARAMETERS *p
  * return directly when that is not the case.
  *
  * @param[in] pGpu      OBJGPU pointer
- * @param[in] hClient   Handle of the client
+ * @param[in] pDevice   Device pointer
  * @param[in] gpuMask   GPU mask
  * @param[in] flags     Flags for the corresponding VA allocation
  * @param[in] action    Requested action to manage the page levels
@@ -726,7 +694,7 @@ static NV_STATUS
 _vaspaceapiManagePageLevelsForSplitVaSpace
 (
     OBJGPU                              *pGpu,
-    NvHandle                             hClient,
+    Device                              *pDevice,
     NvU32                                gpuMask,
     NvU32                                flags,
     VASPACEAPI_MANAGE_PAGE_LEVELS_ACTION action
@@ -740,7 +708,7 @@ _vaspaceapiManagePageLevelsForSplitVaSpace
     if ((!IS_VIRTUAL_WITH_SRIOV(pGpu) && !IS_GSP_CLIENT(pGpu)) ||
         !RMCFG_FEATURE_PMA ||
         !memmgrIsPmaInitialized(pMemoryManager) ||
-        !memmgrAreClientPageTablesPmaManaged(pMemoryManager) ||
+        !(flags & VASPACE_FLAGS_PTETABLE_PMA_MANAGED) ||
         !!(flags & VASPACE_FLAGS_DISABLE_SPLIT_VAS))
     {
         return NV_OK;
@@ -764,7 +732,7 @@ _vaspaceapiManagePageLevelsForSplitVaSpace
             // need to thoutoughly test it against SMC sanities before enabling
             // this function on non Client-RM environment.
             //
-            NV_ASSERT_OK_OR_RETURN(memmgrPageLevelPoolsGetInfo(pGpu, pMemoryManager, hClient, &pMemPool));
+            NV_ASSERT_OK_OR_RETURN(memmgrPageLevelPoolsGetInfo(pGpu, pMemoryManager, pDevice, &pMemPool));
 
             if (action == VASPACEAPI_MANAGE_PAGE_LEVELS_RESERVE)
             {
@@ -777,7 +745,7 @@ _vaspaceapiManagePageLevelsForSplitVaSpace
             }
             else if (action == VASPACEAPI_MANAGE_PAGE_LEVELS_TRIM)
             {
-                rmMemPoolTrim(pMemPool, 0, flags);
+                rmMemPoolTrim(pMemPool, 1, flags);
             }
         }
         FOR_EACH_GPU_IN_MASK_UC_END
